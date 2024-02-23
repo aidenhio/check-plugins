@@ -1,0 +1,203 @@
+#!/bin/bash
+
+# Checks NUT's upsc output for a given device's values.
+# Only the warning values can be adjusted. Critical values
+# will be derived from upsc's output. Consult your driver's
+# configuration if these can be overridden or be defaulted.
+# Otherwise the UPS' internal settings are responsible for
+# shutdown of the entire system and thus must not be masked
+# by monitoring.
+#
+device='EATONPROTSTAT800@localhost'
+VERBOSE=0
+
+function usage {
+cat <<EOF
+
+Check UPSC
+
+check_upsc [-h]
+check_upsc -V
+check_upsc [-t <test-file>] 
+check_upsc [-d <device>] [OPTIONS]
+
+-h             - print usage and exit
+-V             - print version and exit
+-t <test-file> - read properties from given file
+-d <device>    - device that will be queried by command
+
+Options:
+
+-v             - verbose output
+-b <percent>   - Warning threshold, value battery.charge
+-r <seconds>   - Warning threshold, value battery.runtime
+-l <locale>    - Locale, for example C to use . as float separator
+
+It is not possible to override critical threshold as they
+are determined by the UPS/ its driver. These thresholds force
+a shutdown and masking them with monitoring values is
+dangerous.
+
+EOF
+}
+
+function version {
+        echo "check_upsc 1.0.0"
+}
+
+function value {
+        num=${1#* }
+        printf "%.0f" $num
+}
+
+function textValue {
+        echo ${1#* }
+}
+
+EXIT_CODE_OK=0
+EXIT_CODE_WARNING=1
+EXIT_CODE_CRITICAL=2
+EXIT_CODE_UNKNOWN=3
+
+if [ $# -eq 0 ]; then
+        usage
+        exit $EXIT_CODE_OK
+fi
+
+hash upsc >/dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+        echo "Command upsc not available"
+        exit $EXIT_CODE_UNKNOWN
+fi
+
+# percent
+batteryWarnThreshold=50
+
+# percent, could be overridden by upsc command
+# property battery.charge.low
+batteryLowThreshold=20
+
+# in seconds
+runtimeWarnThreshold=300
+
+# could be overridden by upsc
+runtimeLowThreshold=180
+
+
+# trailing colon to suppress long error messages
+while getopts ":hvVd:t:r:b:l:" opt; do
+        case $opt in
+                h)
+                        usage; exit 0 ;;
+                v)
+                        VERBOSE=1;;
+                                V)
+                                                version; exit 0 ;;
+                                d)
+                                                device=$OPTARG;;
+                                t)
+                                                file=$OPTARG;;
+                                r)
+                                                runtimeWarnThreshold=$OPTARG;;
+                                b)
+                                                batteryWarnThreshold=$OPTARG;;
+                                l)
+                                                LC_ALL=$OPTARG;;
+                *)  echo Invalid option $opt; usage;;
+        esac
+done
+
+shift $((OPTIND-1))
+
+
+if [ $batteryWarnThreshold -gt 100 ]; then
+        echo "Battery warning threshold of $batteryWarnThreshold% is >100% and does not make any sense."
+        exit $EXIT_CODE_UNKNOWN
+fi
+
+if [ -z "$file" ]; then
+IFS='
+' rawOutput=( $(upsc $device 2>&1 | grep -v "^Init SSL") )
+else
+IFS='
+' rawOutput=( $(cat $file) )
+fi
+
+status='UNKNOWN'
+message='output unparseable'
+runtimeSeconds=-1
+chargePercent=-1
+onBattery=-1
+outletPower=-1
+batteryLow=-1
+forcedShutdown=-1
+
+exitCode=$EXIT_CODE_UNKNOWN
+
+for line in ${rawOutput[@]}; do
+  if [[ $line =~ ^ups.status ]]; then
+          lineStatus=$(textValue $line)
+          case $lineStatus in
+                  'OL') message='Power available'; exitCode=$EXIT_CODE_OK; onBattery=0 ;;
+                  'OB') message='Running on battery'; onBattery=1 ;;
+                  'OB LB') message='Running on low battery'; onBattery=1 batteryLow=1;;
+                  'FSD OB LB') message='Shutdown initiated'; onBattery=1; forcedShutdown=1;;
+          esac
+  elif [[ $line =~ ^battery.runtime: ]]; then
+          runtimeSeconds=$(value $line)
+  elif [[ $line =~ ^battery.runtime.low ]]; then
+          runtimeLowThreshold=$(value $line)
+  elif [[ $line =~ ^battery.charge: ]]; then
+          chargePercent=$(value $line)
+  elif [[ $line =~ ^battery.charge.low ]]; then
+          batteryLowThreshold=$(value $line)
+  elif [[ $line =~ ^input.voltage ]]; then
+          inputVoltage=$(value $line)     
+  elif [[ $line =~ ^output.voltage: ]]; then
+          outputVoltage=$(value $line)
+  elif [[ $line =~ ^ups.load ]]; then
+          outputLoad=$(value $line)
+  fi
+done
+
+if [ $onBattery -eq 1 ]; then
+        # Determine by current charge or by remaining runtime
+        if [ $forcedShutdown -eq 1 ] || [ $batteryLow -eq 1 ]; then
+                status='CRITICAL'
+                exitCode=$EXIT_CODE_CRITICAL
+        elif [ $chargePercent -lt $batteryLowThreshold ] || [ $runtimeSeconds -lt $runtimeLowThreshold ]; then                status='CRITICAL'
+                message="$message system might shutdown soon"
+                exitCode=$EXIT_CODE_CRITICAL
+        elif [ $chargePercent -lt $batteryWarnThreshold ] || [ $runtimeSeconds -lt $runtimeWarnThreshold ]; then
+                status='WARN'
+                message="$message shutdown likely"
+                exitCode=$EXIT_CODE_WARNING
+        else
+                status='OK'
+                message="$message with full service"
+                exitCode=$EXIT_CODE_OK
+        fi
+
+elif [ $onBattery -eq 0 ]; then
+        if [ $chargePercent -lt $batteryWarnThreshold ]; then
+                status="WARNING"
+                message="$message but charge still low"
+                exitCode=$EXIT_CODE_WARNING
+        else
+                status="OK"
+                exitCode=$EXIT_CODE_OK
+        fi
+fi
+
+echo "$status: $device $message (Charge $chargePercent%, runtime ${runtimeSeconds}s)|'charge'=$chargePercent%;$batteryWarnThreshold;$batteryLowThreshold 'runtime'=${runtimeSeconds}s;$runtimeWarnThreshold;$runtimeLowThreshold 'load'=$outputLoad% 'inputVoltage'=$inputVoltage 'outputVoltage'=$outputVoltage"
+
+if [ $batteryWarnThreshold -lt $batteryLowThreshold ]; then
+        echo "Battery warning threshold $batteryWarnThreshold% is lower than critcal threshold $batteryLowThreshold and will never cause warnings"
+fi
+
+if [ $runtimeWarnThreshold -lt $runtimeLowThreshold ]; then
+        echo "Runtime warning threshold $runtimeWarnThreshold is lower than critical threshold $runtimeLowThreshold and will never cause warnings"
+fi
+
+exit $exitCode
