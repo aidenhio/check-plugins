@@ -141,6 +141,7 @@ for line in ${rawOutput[@]}; do
           case $lineStatus in
                   'OL') message='Power available'; exitCode=$EXIT_CODE_OK; onBattery=0 ;;
                   'OB') message='Running on battery'; onBattery=1 ;;
+                  'OL DISCHRG') message="Online discharging"; onBattery=0;;
                   'OB LB') message='Running on low battery'; onBattery=1 batteryLow=1;;
                   'FSD OB LB') message='Shutdown initiated'; onBattery=1; forcedShutdown=1;;
           esac
@@ -153,9 +154,7 @@ for line in ${rawOutput[@]}; do
   elif [[ $line =~ ^battery.charge.low ]]; then
           batteryLowThreshold=$(value $line)
   elif [[ $line =~ ^input.voltage ]]; then
-          inputVoltage=$(value $line)     
-  elif [[ $line =~ ^output.voltage: ]]; then
-          outputVoltage=$(value $line)
+          inputVoltage=$(value $line)
   elif [[ $line =~ ^ups.load ]]; then
           outputLoad=$(value $line)
   fi
@@ -190,7 +189,7 @@ elif [ $onBattery -eq 0 ]; then
         fi
 fi
 
-echo "$status: $device $message (Charge $chargePercent%, runtime ${runtimeSeconds}s)|'charge'=$chargePercent%;$batteryWarnThreshold;$batteryLowThreshold 'runtime'=${runtimeSeconds}s;$runtimeWarnThreshold;$runtimeLowThreshold 'load'=$outputLoad% 'inputVoltage'=$inputVoltage 'outputVoltage'=$outputVoltage"
+echo "$status: $device $message (Charge $chargePercent%, runtime ${runtimeSeconds}s)|'charge'=$chargePercent%;$batteryWarnThreshold;$batteryLowThreshold 'runtime'=${runtimeSeconds}s;$runtimeWarnThreshold;$runtimeLowThreshold 'load'=$outputLoad% 'inputVoltage'=$inputVoltage"
 
 if [ $batteryWarnThreshold -lt $batteryLowThreshold ]; then
         echo "Battery warning threshold $batteryWarnThreshold% is lower than critcal threshold $batteryLowThreshold and will never cause warnings"
