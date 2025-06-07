@@ -139,9 +139,10 @@ for line in ${rawOutput[@]}; do
   if [[ $line =~ ^ups.status ]]; then
           lineStatus=$(textValue $line)
           case $lineStatus in
-                  'OL') message='Power available'; exitCode=$EXIT_CODE_OK; onBattery=0 ;;
-                  'OB') message='Running on battery'; onBattery=1 ;;
+                  'OL') message='Power available'; exitCode=$EXIT_CODE_OK; onBattery=0;;
+                  'OB') message='Running on battery'; onBattery=1;;
                   'OL DISCHRG') message="Online discharging"; onBattery=0;;
+                  'OL CHRG') message="Online charging"; onBattery=0;;
                   'OB LB') message='Running on low battery'; onBattery=1 batteryLow=1;;
                   'FSD OB LB') message='Shutdown initiated'; onBattery=1; forcedShutdown=1;;
           esac
