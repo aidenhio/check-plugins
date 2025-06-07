@@ -5,8 +5,7 @@ name: Zip check plugins
 on:
   push:
     branches: [ "main" ]
-    tags:
-    - '*'
+    tags: [ "*" ]
     
   workflow_dispatch:
 
@@ -20,7 +19,14 @@ jobs:
     steps:
       # Runs a single command using the runners shell
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+      
+      - name: Bump version and push tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
         
       - name: Zip release
         uses: thedoctor0/zip-release@0.7.6
@@ -28,9 +34,12 @@ jobs:
           type: zip
           filename: check-plugins.zip
           exclusions: '/.git* /*notifications/* README.md'
-      
+        
       - name: Upload release
         uses: ncipollo/release-action@v1.16.0
         with:
+          tag: ${{ steps.tag_version.outputs.new_tag }}
+          name: Release ${{ steps.tag_version.outputs.new_tag }}
+          body: ${{ steps.tag_version.outputs.changelog }}
           artifacts: "check-plugins.zip"
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
