@@ -5,6 +5,8 @@ name: Zip check plugins
 on:
   push:
     branches: [ "main" ]
+    tags:
+    - '*'
     
   workflow_dispatch:
 
@@ -25,7 +27,7 @@ jobs:
         with:
           type: zip
           filename: check-plugins.zip
-          exclusions: '/.git* /notifications README.md'
+          exclusions: '/.git* /*notifications/* README.md'
       
       - name: Upload release
         uses: ncipollo/release-action@v1.16.0
