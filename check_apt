@@ -1,0 +1,233 @@
+#!/bin/bash
+
+# -------------------------------------------------------------------------------- #
+# Flags                                                                            #
+# -------------------------------------------------------------------------------- #
+# A set of global flags that we use for configuration.                             #
+# -------------------------------------------------------------------------------- #
+
+ALLOW_ZERO_INPUT=true            # Do we require any user input ?
+
+# -------------------------------------------------------------------------------- #
+# Global Variables                                                                 #
+# -------------------------------------------------------------------------------- #
+
+WARNING_TOTAL=25
+WARNING_SECURITY=0
+CRITICAL_TOTAL=50
+CRITICAL_SECURITY=0
+
+# -------------------------------------------------------------------------------- #
+# Main                                                                             #
+# -------------------------------------------------------------------------------- #
+# This function is where you can include all the code related to the check. You're #
+# free to define additional functions and invoke them whenever necessary.          #
+# -------------------------------------------------------------------------------- #
+
+function main()
+{
+    # Get update counts from apt-check
+    check_updates=$(/usr/lib/update-notifier/apt-check 2>&1)
+
+    # Parse total and security updates
+    total_updates=$(echo "$check_updates" | cut -d';' -f1)
+    security_updates=$(echo "$check_updates" | cut -d';' -f2)
+
+    # Calculate recommended (non-security) updates
+    recommended_updates=$((total_updates - security_updates))
+
+    # Generate output
+    message="$total_updates packages available for upgrade ($security_updates security updates)"
+    pref_data="total_updates=$total_updates, recommended_updates=$recommended_updates, security_updates=$security_updates"
+
+
+    # shellcheck disable=SC2312
+    if [[ $(echo "${total_updates} >= ${CRITICAL_TOTAL}" | bc -l) -eq 1 ]] || \
+    [[ $(echo "${security_updates} >= ${CRITICAL_SECURITY}" | bc -l) -eq 1 ]]; then
+        handle_critical "$message | $pref_data"
+
+    elif [[ $(echo "${total_updates} >= ${WARNING_TOTAL}" | bc -l) -eq 1 ]] || \
+        [[ $(echo "${security_updates} >= ${WARNING_SECURITY}" | bc -l) -eq 1 ]]; then
+        handle_warning "$message | $pref_data"
+
+    elif [[ $(echo "${total_updates} >= 0" | bc -l) -eq 1 ]]; then
+        handle_ok "$message | $pref_data"
+
+    else
+        handle_unknown "$pref_data"
+    fi
+
+}
+
+# -------------------------------------------------------------------------------- #
+# Usage (-h parameter)                                                             #
+# -------------------------------------------------------------------------------- #
+# This function is used to show the user 'how' to use the script.                  #
+# -------------------------------------------------------------------------------- #
+
+function usage()
+{
+cat <<EOF
+  Usage: $0 [ -h ] [ -c value ] [ -w value ]
+    -h, --help                  : Print this screen
+    -c, --critical-total        : Critical number of total updates pending [Default: ${CRITICAL_TOTAL}]
+    -w, --warning-total         : Warning number of total updates pending [Default: ${WARNING_TOTAL}]
+    --critial-security          : Critical number of security updates pending [Default: ${CRITICAL_SECURITY}]
+    --warning-security          : Warning number of security updates pending [Default: ${WARNING_SECURITY}]
+EOF
+    exit 0
+}
+
+# -------------------------------------------------------------------------------- #
+# Process Arguments                                                                #
+# -------------------------------------------------------------------------------- #
+# This function handles the input from the command line.                           #
+# -------------------------------------------------------------------------------- #
+
+function process_arguments()
+{
+    if [[ "${ALLOW_ZERO_INPUT}" = false ]] && [[ $# -eq 0 ]]; then
+        handle_unknown "No parameters given"
+    fi
+
+
+    # Define short and long options
+    OPTIONS=h,c:,w:
+    LONGOPTS=help,critical-total:,warning-total:,critical-security:,warning-security:
+
+    # Parse options using getopt
+    PARSED=$(getopt --options=$OPTIONS --longoptions=$LONGOPTS --name "$0" -- "$@")
+    if [[ $? -ne 0 ]]; then
+        echo "Failed to parse options." >&2
+        exit 1
+    fi
+
+    # Reorder positional parameters
+    eval set -- "$PARSED"
+
+    # Process options
+    while true; do
+        case "$1" in
+            -h|--help)
+                usage
+                shift
+                ;;
+            -c|--critical-total)
+                CRITICAL_TOTAL="$2"
+                shift 2
+                ;;
+            -w|--warning-total)
+                WARNING_TOTAL="$2"
+                shift 2
+                ;;
+            --critical-security)
+                CRITICAL_SECURITY="$2"
+                shift 2
+                ;;
+            --warning-security)
+                WARNING_SECURITY="$2"
+                shift 2
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                handle_unknown "Invalid option: $1"
+                exit 1
+                ;;
+        esac
+    done
+
+    # shellcheck disable=SC2312
+    if (( $(echo "${WARNING_TOTAL} >= ${CRITICAL_TOTAL}" | bc -l) )); then
+        handle_unknown "Warning for total updates MUST be lower than critical for total updates"
+    fi
+    if (( $(echo "${WARNING_SECURITY} > ${CRITICAL_SECURITY}" | bc -l) )); then
+        handle_unknown "Warning for security updates MUST be lower than critical for security updates"
+    fi
+    main
+}
+
+# -------------------------------------------------------------------------------- #
+# STOP HERE!                                                                       #
+# -------------------------------------------------------------------------------- #
+# The functions listed below are integral to the template and do not necessitate   #
+# any modifications to use this template. If you intend to make changes to the     #
+# code beyond this point, please make certain that you comprehend the consequences #
+# of those alterations!                                                            #
+# -------------------------------------------------------------------------------- #
+
+# -------------------------------------------------------------------------------- #
+# Handle OK                                                                        #
+# -------------------------------------------------------------------------------- #
+# If provided with a message, this function will show it with the 'OK' prefix and  #
+# subsequently terminate the script with the requisite exit code of 0.             #
+# -------------------------------------------------------------------------------- #
+
+function handle_ok()
+{
+    local message="${*:-}"
+
+    [[ -n ${message} ]] && echo "OK - ${message}"
+    exit 0
+}
+
+# -------------------------------------------------------------------------------- #
+# Handle Warning                                                                   #
+# -------------------------------------------------------------------------------- #
+# If provided with a message, this function will show it with the 'WARNING' prefix #
+# and subsequently terminate the script with the requisite exit code of 1.         #
+# -------------------------------------------------------------------------------- #
+
+function handle_warning()
+{
+    local message="${*:-}"
+
+    [[ -n ${message} ]] && echo "WARNING - ${message}"
+    exit 1
+}
+
+# -------------------------------------------------------------------------------- #
+# Handle Critical                                                                  #
+# -------------------------------------------------------------------------------- #
+# If provided with a message, this function will show it with the 'CRITICAL'       #
+# prefix and subsequently terminate the script with the requisite exit code of 2.  #
+# -------------------------------------------------------------------------------- #
+
+function handle_critical()
+{
+    local message="${*:-}"
+
+    [[ -n ${message} ]] && echo "CRITICAL - ${message}"
+    exit 2
+}
+
+# -------------------------------------------------------------------------------- #
+# Handle Unknown                                                                   #
+# -------------------------------------------------------------------------------- #
+# If provided with a message, this function will show it with the 'UNKNOWN' prefix #
+# and subsequently terminate the script with the requisite exit code of 3.         #
+# -------------------------------------------------------------------------------- #
+
+function handle_unknown()
+{
+    local message="${*:-}"
+
+    [[ -n ${message} ]] && echo "UNKNOWN - ${message}"
+    exit 3
+}
+
+# -------------------------------------------------------------------------------- #
+# The Core                                                                         #
+# -------------------------------------------------------------------------------- #
+# This is the central component of the script.                                     #
+# -------------------------------------------------------------------------------- #
+
+process_arguments "${@}"
+
+# -------------------------------------------------------------------------------- #
+# End of Script                                                                    #
+# -------------------------------------------------------------------------------- #
+# This is the end - nothing more to see here.                                      #
+# -------------------------------------------------------------------------------- #

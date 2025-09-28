@@ -32,7 +32,7 @@ jobs:
         with:
           type: zip
           filename: check-plugins.zip
-          exclusions: '/.git* /*notifications/* README.md'
+          exclusions: '/.git* /*notifications/* /*templates/* README.md'
         
       - name: Upload release
         uses: ncipollo/release-action@v1.16.0
