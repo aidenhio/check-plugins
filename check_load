@@ -1,41 +1,55 @@
 #!/bin/bash
 # shellcheck disable=SC2312
 
-# Plugin Name: check_template
-# Description: Simulates a check with random value and thresholds
-# Date: 01/01/2025
+# Plugin Name: check_load
+# Description: Checks system load average
+# Date: 04/10/2025
 
 # Flags
 ALLOW_ZERO_INPUT=true
-PREFIX="TEMPLATE"
+PREFIX="LOAD"
 
 # Global Variables
-WARNING_LEVEL=75
-CRITICAL_LEVEL=90
+WARNING_LEVEL="5.0,4.0,3.0"
+CRITICAL_LEVEL="10.0,6.0,4.0"
 
 # Main
 function main()
 {
-    local test
+    local l1 l5 l15
+    local w1 w5 w15
+    local c1 c5 c15
     local message data
 
-    # Run check
-    test=$((1 + RANDOM % 100))
+    # Read system load averages
+    read l1 l5 l15 _ < /proc/loadavg
+
+    # Parse thresholds
+    IFS=',' read -r w1 w5 w15 <<< "${WARNING_LEVEL}"
+    IFS=',' read -r c1 c5 c15 <<< "${CRITICAL_LEVEL}"
 
     # Generate output
-    message="This is a message"
-    data="0,0,0"
+    message="Load average: ${l1}, ${l5}, ${l15}"
+    data="load1=${l1};${w1};${c1} load5=${l5};${w5};${c5} load15=${l15};${w15};${c15}"
+    
+    # Error on non-number load average value
+    if ! [[ "$l1" =~ ^[0-9]+(\.[0-9]+)?$ && "$l5" =~ ^[0-9]+(\.[0-9]+)?$ && "$l15" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        handle_unknown "Malformed load average values" "${data}"
+    fi
 
     # Compare to threshold values
-    if (( $(echo "${test} >= ${CRITICAL_LEVEL}" | bc -l) )); then
+    if awk_greater "$l1" "$c1" || awk_greater "$l5" "$c5" || awk_greater "$l15" "$c15"; then
         handle_critical "${message}" "${data}"
-    elif (( $(echo "${test} >= ${WARNING_LEVEL}" | bc -l) )); then
+    elif awk_greater "$l1" "$w1" || awk_greater "$l5" "$w5" || awk_greater "$l15" "$w15"; then
         handle_warning "${message}" "${data}"
-    elif (( $(echo "${test} >= 0" | bc -l) )); then
-        handle_ok "${message}" "${data}"
     else
-        handle_unknown "Invalid value" "${data}"
+        handle_ok "${message}" "${data}"
     fi
+}
+
+# Comparision helper
+function awk_greater() {
+    awk -v a="$1" -v b="$2" 'BEGIN { exit (a > b ? 0 : 1) }'
 }
 
 # Usage (-h parameter)
@@ -44,8 +58,8 @@ function usage()
 cat <<EOF
   Usage: $0 [ -h ] [ -c value ] [ -w value ]
     -h, --help      : Print this screen
-    -c, --critical  : Critical level [Default: ${CRITICAL_LEVEL}]
-    -w, --warning   : Warn level [Default: ${WARNING_LEVEL}]
+    -c, --critical  : Critical load average level (1,5,15 min) [Default: ${CRITICAL_LEVEL}]
+    -w, --warning   : Warning load average level (1,5,15 min) [Default: ${WARNING_LEVEL}]
 EOF
     exit 0
 }
@@ -93,10 +107,13 @@ function process_arguments()
                 ;;
         esac
     done
-
+    
     # Validate warning and critical values
-    if (( $(echo "${WARNING_LEVEL} >= ${CRITICAL_LEVEL}" | bc -l) )); then
-        handle_unknown "Warning threshold must be lower than critical threshold"
+    IFS=',' read -r w1 w5 w15 <<< "${WARNING_LEVEL}"
+    IFS=',' read -r c1 c5 c15 <<< "${CRITICAL_LEVEL}"
+
+    if ! awk_greater "$c1" "$w1" || ! awk_greater "$c5" "$w5" || ! awk_greater "$c15" "$w15"; then
+        handle_unknown "Warning thresholds must be lower than critical thresholds"
     fi
 
     main

@@ -1,0 +1,166 @@
+#!/bin/bash
+# shellcheck disable=SC2312
+
+# Plugin Name: check_service
+# Description: Checks systemd service status
+# Date: 06/10/2025
+
+# Flags
+ALLOW_ZERO_INPUT=false
+PREFIX="SYSTEMD"
+
+# Global Variables
+SERVICE=""
+WARN_MODE=false
+
+# Main
+function main()
+{
+    local enabled active retval
+    local now start_ts exit_ts duration
+    local message
+
+    enabled="$(systemctl is-enabled "$SERVICE" 2>/dev/null)"
+    active="$(systemctl is-active "$SERVICE" 2>/dev/null)"
+    now="$(date +%s)"
+
+    # Error if service not enabled
+    if [[ "$enabled" != "enabled" && "$enabled" != "static" && "$enabled" != "indirect" ]]; then
+        handle_critical "$SERVICE is not enabled" ""
+    fi
+
+    if [[ "$active" == "active" || "$active" == "activating" ]]; then
+        start_ts="$(get_timestamp "$SERVICE" "ActiveEnterTimestamp")"
+        duration=$((now - start_ts))
+        message="$SERVICE is running (active for $(format_duration "$duration"))"
+        handle_ok "${message}"
+    else
+        exit_ts="$(get_timestamp "$SERVICE" "ActiveExitTimestamp")"
+        if (( exit_ts > 0 )); then
+            duration=$((now - exit_ts))
+            message="$SERVICE is inactive (stopped for $(format_duration "$duration"))"
+        else
+            message="$SERVICE is inactive (no recent stop timestamp)"
+        fi
+
+        if [[ "$WARN_MODE" == true ]]; then
+            handle_warning "${message}"
+        else
+            handle_critical "${message}"
+        fi
+    fi
+}
+
+# Helpers
+function get_property() {
+    systemctl show "$1" -p "$2" | cut -d= -f2-
+}
+
+function get_timestamp() {
+    local raw
+    raw="$(get_property "$1" "$2")"
+    [[ "$raw" == "n/a" || -z "$raw" ]] && echo 0 && return
+    date --date="$raw" +%s
+}
+
+function format_duration() {
+    local seconds="$1"
+    local days=$((seconds / 86400))
+    local hours=$(( (seconds % 86400) / 3600 ))
+    local minutes=$(( (seconds % 3600) / 60 ))
+    echo "${days}d ${hours}h ${minutes}m"
+}
+
+# Usage (-h parameter)
+function usage()
+{
+cat <<EOF
+  Usage: $0 --service <name> [ --warn ]
+    -h, --help  : Print this screen
+    --service   : Systemd service name (required)
+    --warn      : Use WARNING instead of CRITICAL when service is not running
+EOF
+    exit 0
+}
+
+# Process Arguments
+function process_arguments()
+{
+    # Check if no arguments is allowed
+    if [[ "${ALLOW_ZERO_INPUT}" = false ]] && [[ $# -eq 0 ]]; then
+        handle_unknown "No parameters given"
+    fi
+
+    # Define short and long options
+    SHORTOPTS=h
+    LONGOPTS=help,service:,warn
+
+    # Parse options using getopt
+    OPTIONS=$(getopt --options=$SHORTOPTS --longoptions=$LONGOPTS --name "$0" -- "$@")
+    if [[ $? -ne 0 ]]; then
+        handle_unknown "Failed to parse arguments"
+    fi
+
+    # Reorder positional parameters
+    eval set -- "${OPTIONS}"
+
+    while true; do
+        case "$1" in
+            -h|--help)
+                usage
+                ;;
+            --service)
+                SERVICE="$2"
+                shift 2
+                ;;
+            --warn)
+                WARN_MODE=true
+                shift
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                handle_unknown "Unknown option: $1"
+                ;;
+        esac
+    done
+
+    # Validate service is specified
+    [[ -z "$SERVICE" ]] && handle_unknown "Missing --service argument"
+
+    main
+}
+
+# Handle OK / Warning / Critical / Unknown
+function handle_ok() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }OK - ${message}${perfdata:+ | ${perfdata}}"
+    exit 0
+}
+
+function handle_warning() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }WARNING - ${message}${perfdata:+ | ${perfdata}}"
+    exit 1
+}
+
+function handle_critical() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }CRITICAL - ${message}${perfdata:+ | ${perfdata}}"
+    exit 2
+}
+
+function handle_unknown() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }UNKNOWN - ${message}${perfdata:+ | ${perfdata}}"
+    exit 3
+}
+
+# Core
+process_arguments "${@}"

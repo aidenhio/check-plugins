@@ -1,40 +1,52 @@
 #!/bin/bash
 # shellcheck disable=SC2312
 
-# Plugin Name: check_template
-# Description: Simulates a check with random value and thresholds
-# Date: 01/01/2025
+# Plugin Name: check_users
+# Description: Check number of currently login in users
+# Date: 13/10/2025
 
 # Flags
 ALLOW_ZERO_INPUT=true
-PREFIX="TEMPLATE"
+PREFIX="USERS"
 
 # Global Variables
-WARNING_LEVEL=75
-CRITICAL_LEVEL=90
+WARNING_LEVEL=4
+CRITICAL_LEVEL=6
+SESSIONS=0
 
 # Main
 function main()
 {
-    local test
+    local user_count
     local message data
 
     # Run check
-    test=$((1 + RANDOM % 100))
+    if [ "$SESSIONS" -eq 1 ]; then
+        user_count=$(who | wc -l)
+    else
+        user_count=$(who | awk '{print $1}' | sort | uniq | wc -l)
+    fi    
 
     # Generate output
-    message="This is a message"
-    data="0,0,0"
+    if [ "$user_count" -eq 0 ]; then
+        message="No users currently logged in"
+    elif [ "$user_count" -eq 1 ]; then
+        message="1 user currently logged in"
+    else
+        message="${user_count} users currently logged in"
+    fi
+
+    data="users=${user_count};$WARNING_LEVEL;$CRITICAL_LEVEL;;"
 
     # Compare to threshold values
-    if (( $(echo "${test} >= ${CRITICAL_LEVEL}" | bc -l) )); then
+    if (( $(echo "${user_count} >= ${CRITICAL_LEVEL}" | bc -l) )); then
         handle_critical "${message}" "${data}"
-    elif (( $(echo "${test} >= ${WARNING_LEVEL}" | bc -l) )); then
+    elif (( $(echo "${user_count} >= ${WARNING_LEVEL}" | bc -l) )); then
         handle_warning "${message}" "${data}"
-    elif (( $(echo "${test} >= 0" | bc -l) )); then
+    elif (( $(echo "${user_count} >= 0" | bc -l) )); then
         handle_ok "${message}" "${data}"
     else
-        handle_unknown "Invalid value" "${data}"
+        handle_unknown "Invalid user count" "${data}"
     fi
 }
 
@@ -42,10 +54,11 @@ function main()
 function usage()
 {
 cat <<EOF
-  Usage: $0 [ -h ] [ -c value ] [ -w value ]
-    -h, --help      : Print this screen
-    -c, --critical  : Critical level [Default: ${CRITICAL_LEVEL}]
-    -w, --warning   : Warn level [Default: ${WARNING_LEVEL}]
+  Usage: $0 [ -h ] [ -s ] [ -c value ] [ -w value ]
+    -h, --help          : Print this screen
+    -a, --all-sessions  : Count all logged in sessions, even if same user [Default: false]
+    -c, --critical      : Critical number of logged in users [Default: ${CRITICAL_LEVEL}]
+    -w, --warning       : Warn number of logged in users [Default: ${WARNING_LEVEL}]
 EOF
     exit 0
 }
@@ -59,8 +72,8 @@ function process_arguments()
     fi
 
     # Define short and long options
-    SHORTOPTS=h,c:,w:
-    LONGOPTS=help,critical:,warning:
+    SHORTOPTS=h,a,c:,w:
+    LONGOPTS=help,all-sessions,critical:,warning:
 
     # Parse options using getopt
     OPTIONS=$(getopt --options=$SHORTOPTS --longoptions=$LONGOPTS --name "$0" -- "$@")
@@ -76,6 +89,10 @@ function process_arguments()
             -h|--help)
                 usage
                 ;;
+            -a|--all-sessions)
+                SESSIONS=1
+                shift
+                ;;    
             -c|--critical)
                 CRITICAL_LEVEL="$2"
                 shift 2

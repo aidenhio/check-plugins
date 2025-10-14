@@ -1,51 +1,86 @@
 #!/bin/bash
 # shellcheck disable=SC2312
 
-# Plugin Name: check_template
-# Description: Simulates a check with random value and thresholds
+# Plugin Name: check_disk
+# Description: Check disk usage
 # Date: 01/01/2025
 
 # Flags
 ALLOW_ZERO_INPUT=true
-PREFIX="TEMPLATE"
+PREFIX="DISK"
 
 # Global Variables
-WARNING_LEVEL=75
+WARNING_LEVEL=80
 CRITICAL_LEVEL=90
+MOUNT="/"
 
 # Main
 function main()
 {
-    local test
+    local df_out used_pct avail_kb total_kb used_kb
+    local f_free f_total f_used
     local message data
 
-    # Run check
-    test=$((1 + RANDOM % 100))
+    # Get disk stats
+    df_out=$(df -P "$MOUNT" 2>/dev/null | awk 'NR==2')
+    if [[ -z "$df_out" ]]; then
+        handle_unknown "Mount point not found: $MOUNT"
+    fi
+
+    used_pct=$(echo "$df_out" | awk '{print $5}' | tr -d '%')
+    avail_kb=$(echo "$df_out" | awk '{print $4}')
+    total_kb=$(echo "$df_out" | awk '{print $2}')
+    used_kb=$(( total_kb - avail_kb ))
 
     # Generate output
-    message="This is a message"
-    data="0,0,0"
+    f_free=$(format_bytes "$avail_kb")
+    f_total=$(format_bytes "$total_kb")
+    f_used=$(format_bytes "$used_kb")
+    message="$MOUNT is ${used_pct}% used, ${f_free} free of ${f_total} (${f_used} used)"
+    data="used=${used_kb}KB, free=${avail_kb}KB"
 
     # Compare to threshold values
-    if (( $(echo "${test} >= ${CRITICAL_LEVEL}" | bc -l) )); then
+    if (( $(echo "${used_pct}  >= ${CRITICAL_LEVEL}" | bc -l) )); then
         handle_critical "${message}" "${data}"
-    elif (( $(echo "${test} >= ${WARNING_LEVEL}" | bc -l) )); then
+    elif (( $(echo "${used_pct}  >= ${WARNING_LEVEL}" | bc -l) )); then
         handle_warning "${message}" "${data}"
-    elif (( $(echo "${test} >= 0" | bc -l) )); then
+    elif (( $(echo "${used_pct}  >= 0" | bc -l) )); then
         handle_ok "${message}" "${data}"
     else
         handle_unknown "Invalid value" "${data}"
     fi
 }
 
+# Format byte values base on magnitude
+function format_bytes() {
+    local kb="$1"
+    local unit="KB"
+    local value="$kb"
+
+    if (( kb >= 1024 * 1024 * 1024 )); then
+        value=$(awk "BEGIN {printf \"%.2f\", $kb/1073741824}")
+        unit="TB"
+    elif (( kb >= 1024 * 1024 )); then
+        value=$(awk "BEGIN {printf \"%.2f\", $kb/1048576}")
+        unit="GB"
+    elif (( kb >= 1024 )); then
+        value=$(awk "BEGIN {printf \"%.2f\", $kb/1024}")
+        unit="MB"
+    fi
+
+    echo "${value}${unit}"
+}
+
+
 # Usage (-h parameter)
 function usage()
 {
 cat <<EOF
-  Usage: $0 [ -h ] [ -c value ] [ -w value ]
+  Usage: $0 [ -h ] -p <path >[ -c value ] [ -w value ]
     -h, --help      : Print this screen
-    -c, --critical  : Critical level [Default: ${CRITICAL_LEVEL}]
-    -w, --warning   : Warn level [Default: ${WARNING_LEVEL}]
+    -p, --path      : Mount point to check [Default: ${MOUNT_POINT}]
+    -c, --critical  : Critical percentage of disk used [Default: ${CRITICAL_LEVEL}]
+    -w, --warning   : Warn percentage of disk used [Default: ${WARNING_LEVEL}]   
 EOF
     exit 0
 }
@@ -59,8 +94,8 @@ function process_arguments()
     fi
 
     # Define short and long options
-    SHORTOPTS=h,c:,w:
-    LONGOPTS=help,critical:,warning:
+    SHORTOPTS=h,c:,w:,p:
+    LONGOPTS=help,critical:,warning:,path:
 
     # Parse options using getopt
     OPTIONS=$(getopt --options=$SHORTOPTS --longoptions=$LONGOPTS --name "$0" -- "$@")
@@ -84,6 +119,10 @@ function process_arguments()
                 WARNING_LEVEL="$2"
                 shift 2
                 ;;
+            -p|--path)
+                MOUNT="$2"
+                shift 2
+                ;;    
             --)
                 shift
                 break

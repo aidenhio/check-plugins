@@ -1,41 +1,84 @@
 #!/bin/bash
 # shellcheck disable=SC2312
 
-# Plugin Name: check_template
-# Description: Simulates a check with random value and thresholds
-# Date: 01/01/2025
+# Plugin Name: check_swap
+# Description: Check system swap
+# Date: 02/10/2025
 
 # Flags
 ALLOW_ZERO_INPUT=true
-PREFIX="TEMPLATE"
+PREFIX="SWAP"
 
 # Global Variables
-WARNING_LEVEL=75
-CRITICAL_LEVEL=90
+WARNING_LEVEL=50
+CRITICAL_LEVEL=70
 
 # Main
 function main()
 {
-    local test
+    local swap_total swap_free swap_used
+    local swap_used_pct swap_warn_pct swap_crit_pct
+    local f_swap_total f_swap_free f_swap_used
     local message data
 
-    # Run check
-    test=$((1 + RANDOM % 100))
+    # Error if can't read swap info
+    if ! grep -q "SwapTotal" /proc/meminfo; then
+        handle_unknown "Unable to read /proc/meminfo"
+    fi
+
+    # Get swap values from /proc/meminfo
+    swap_total=$(awk '/SwapTotal/ {print $2}' /proc/meminfo)
+    swap_free=$(awk '/SwapFree/ {print $2}' /proc/meminfo)
+    swap_used=$((swap_total - swap_free))
+
+    # Error if no swap
+    if (( swap_total == 0 )); then
+        handle_critical "No swap configured"
+    fi
+
+    # Calculate swap free percentage
+    swap_used_pct=$(awk -v used="$swap_used" -v total="$swap_total" 'BEGIN { printf "%.1f\n", 100 * used / total }')
+    swap_warn_pct=$(awk "BEGIN {print int(($WARNING_LEVEL / 100) * $swap_total )}")
+    swap_crit_pct=$(awk "BEGIN {print int(($CRITICAL_LEVEL / 100) * $swap_total )}")
 
     # Generate output
-    message="This is a message"
-    data="0,0,0"
+    f_swap_total=$(format_bytes "$swap_total")
+    f_swap_free=$(format_bytes "$swap_free")
+    f_swap_used=$(format_bytes "$swap_used")
+    message="${swap_used_pct}% swap used (${f_swap_used} used of ${f_swap_total}, ${f_swap_free} free)"
+    data="total=${swap_total};;;; used=${swap_used};${swap_warn_pct};${swap_crit_pct};; free=${swap_free};;;;"
 
     # Compare to threshold values
-    if (( $(echo "${test} >= ${CRITICAL_LEVEL}" | bc -l) )); then
+    if (( $(echo "${swap_used_pct} >= ${CRITICAL_LEVEL}" | bc -l) )); then
         handle_critical "${message}" "${data}"
-    elif (( $(echo "${test} >= ${WARNING_LEVEL}" | bc -l) )); then
+    elif (( $(echo "${swap_used_pct} >= ${WARNING_LEVEL}" | bc -l) )); then
         handle_warning "${message}" "${data}"
-    elif (( $(echo "${test} >= 0" | bc -l) )); then
+    elif (( $(echo "${swap_used_pct} >= 0" | bc -l) )); then
         handle_ok "${message}" "${data}"
     else
-        handle_unknown "Invalid value" "${data}"
+        handle_unknown "Invalid swap value ${data}"
     fi
+
+}
+
+# Format byte values base on magnitude
+function format_bytes() {
+    local kb="$1"
+    local unit="KB"
+    local value="$kb"
+
+    if (( kb >= 1024 * 1024 * 1024 )); then
+        value=$(awk "BEGIN {printf \"%.2f\", $kb/1073741824}")
+        unit="TB"
+    elif (( kb >= 1024 * 1024 )); then
+        value=$(awk "BEGIN {printf \"%.2f\", $kb/1048576}")
+        unit="GB"
+    elif (( kb >= 1024 )); then
+        value=$(awk "BEGIN {printf \"%.2f\", $kb/1024}")
+        unit="MB"
+    fi
+
+    echo "${value}${unit}"
 }
 
 # Usage (-h parameter)
@@ -44,8 +87,8 @@ function usage()
 cat <<EOF
   Usage: $0 [ -h ] [ -c value ] [ -w value ]
     -h, --help      : Print this screen
-    -c, --critical  : Critical level [Default: ${CRITICAL_LEVEL}]
-    -w, --warning   : Warn level [Default: ${WARNING_LEVEL}]
+    -c, --critical  : Critical percentage of swap used [Default: ${CRITICAL_LEVEL}%]
+    -w, --warning   : Warning percentage of swap used [Default: ${WARNING_LEVEL}%]
 EOF
     exit 0
 }
@@ -96,9 +139,8 @@ function process_arguments()
 
     # Validate warning and critical values
     if (( $(echo "${WARNING_LEVEL} >= ${CRITICAL_LEVEL}" | bc -l) )); then
-        handle_unknown "Warning threshold must be lower than critical threshold"
+        handle_unknown "Warning thresholds must be lower than critical thresholds"
     fi
-
     main
 }
 

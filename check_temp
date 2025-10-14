@@ -1,40 +1,84 @@
 #!/bin/bash
 # shellcheck disable=SC2312
 
-# Plugin Name: check_template
-# Description: Simulates a check with random value and thresholds
-# Date: 01/01/2025
+# Plugin Name: check_temp
+# Description: Checks CPU temperature
+# Date: 13/10/2025
 
 # Flags
 ALLOW_ZERO_INPUT=true
-PREFIX="TEMPLATE"
+PREFIX="TEMP"
 
 # Global Variables
-WARNING_LEVEL=75
+WARNING_LEVEL=70
 CRITICAL_LEVEL=90
 
 # Main
 function main()
 {
-    local test
+    local temp core_temp all_core_temps
+    local arch pi
     local message data
 
-    # Run check
-    test=$((1 + RANDOM % 100))
+    # Check for lm-sensors
+    if ! command -v sensors >/dev/null 2>&1; then
+        handle_unknown "'lm-sensors' not found."
+    fi
+
+    # Detect platform
+    arch=$(uname -m)
+    pi=false
+    if [[ "$arch" == "armv7l" || "$arch" == "aarch64" ]]; then
+        pi=true
+    fi
+
+    # Extract CPU temp using lm-sensors, based on platform
+    if $pi; then
+        # Raspberry Pi: look for cpu_thermal-virtual-0 temp1
+        temp=$(sensors | awk '/cpu_thermal-virtual-0/,/^$/' | awk '/temp1:/ {gsub(/[+°C]/, "", $2); print int($2); exit}')
+        
+        # Fallback if no temp found
+        if [[ -z "$temp" ]]; then
+            handle_unknown "Unable to read CPU temperature"
+        fi
+
+        # Generate perfdata
+        data="cpu_temp=${temp};${WARNING_LEVEL};${CRITICAL_LEVEL};;"
+    else
+        # x86: look for Core 0 or Package id 0
+        all_core_temps=()
+        while IFS= read -r line; do
+            core_temp=$(echo "$line" | awk '{gsub(/[+°C]/, "", $3); print int($3)}')
+            all_core_temps+=("$core_temp")
+        done < <(sensors | awk '/Core [0-9]+/')
+
+        # Fallback if no cores found
+        if [[ ${#all_core_temps[@]} -eq 0 ]]; then
+            handle_unknown "No core temperatures found"
+        fi
+
+        # Use highest temp for status
+        temp=$(printf "%s\n" "${all_core_temps[@]}" | sort -nr | head -n1)
+
+        # Generate perfdata
+        data="cpu_temp=${temp};${WARNING_LEVEL};${CRITICAL_LEVEL};; "
+        for i in "${!all_core_temps[@]}"; do
+            data+="core${i}=${all_core_temps[$i]};;;; "
+        done
+    fi
 
     # Generate output
-    message="This is a message"
-    data="0,0,0"
+    message="CPU temperature is ${temp}°C"
 
     # Compare to threshold values
-    if (( $(echo "${test} >= ${CRITICAL_LEVEL}" | bc -l) )); then
+    if (( $(echo "${temp} >= ${CRITICAL_LEVEL}" | bc -l) )); then
         handle_critical "${message}" "${data}"
-    elif (( $(echo "${test} >= ${WARNING_LEVEL}" | bc -l) )); then
+    elif (( $(echo "${temp} >= ${WARNING_LEVEL}" | bc -l) )); then
         handle_warning "${message}" "${data}"
-    elif (( $(echo "${test} >= 0" | bc -l) )); then
+    elif (( $(echo "${temp} >= 0" | bc -l) )); then
         handle_ok "${message}" "${data}"
     else
-        handle_unknown "Invalid value" "${data}"
+        handle_unknown "Invalid CPU tempature" "${data}"
     fi
 }
 
@@ -44,8 +88,8 @@ function usage()
 cat <<EOF
   Usage: $0 [ -h ] [ -c value ] [ -w value ]
     -h, --help      : Print this screen
-    -c, --critical  : Critical level [Default: ${CRITICAL_LEVEL}]
-    -w, --warning   : Warn level [Default: ${WARNING_LEVEL}]
+    -c, --critical  : Critical CPU temperature [Default: ${CRITICAL_LEVEL}]
+    -w, --warning   : Warn CPU temperature [Default: ${WARNING_LEVEL}]
 EOF
     exit 0
 }

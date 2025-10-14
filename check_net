@@ -1,0 +1,178 @@
+#!/bin/bash
+# shellcheck disable=SC2312
+
+# Plugin Name: check_net
+# Description: Checks interface rx and tx
+# Date: 13/10/2025
+
+# Flags
+ALLOW_ZERO_INPUT=false
+PREFIX="NET"
+
+# Global Variables
+WARNING_LEVEL=10
+CRITICAL_LEVEL=100
+INTERFACE=""
+
+# Main
+function main()
+{
+    local stat_path file_rx file_tx state_file
+    local now rx tx last_rx last_tx last_time delta_time rate_rx rate_tx
+    local message data
+
+    # Set stats location
+    stat_path="/sys/class/net/$INTERFACE/statistics"
+    file_rx="${stat_path}/rx_bytes"
+    file_tx="${stat_path}/tx_bytes"
+    state_file="/tmp/check_net_${INTERFACE}.state"
+
+    # Validate stats can be accessed
+    if [ ! -r "$file_rx" ] || [ ! -r "$file_tx" ]; then
+        handle_unknown ""Interface $INTERFACE not found or inaccessible""
+    fi
+
+    # Get net stats, calcuated based on previous check
+    now=$(date +%s)
+    rx=$(cat "$file_rx")
+    tx=$(cat "$file_tx")
+
+    if [[ -f "$state_file" ]]; then
+        read -r last_time last_rx last_tx < "$state_file"
+        delta_time=$((now - last_time))
+
+        if (( delta_time > 0 )); then
+            rate_rx=$(awk "BEGIN { printf \"%.2f\", ($rx - $last_rx) / $delta_time / 1024 }")
+            rate_tx=$(awk "BEGIN { printf \"%.2f\", ($tx - $last_tx) / $delta_time / 1024 }")
+        else
+            rate_rx=0
+            rate_tx=0
+        fi
+    else
+        rate_rx=0
+        rate_tx=0
+    fi
+    echo "$now $rx $tx" > "$state_file"
+
+    # Generate output
+    message="Sent ${rate_tx} kB/s, recieved ${rate_rx} kB/s"
+    data="bytes_sent=$rate_tx;$WARNING_LEVEL;$CRITICAL_LEVEL;; bytes_recv=$rate_rx;$WARNING_LEVEL;$CRITICAL_LEVEL;;"
+
+    # Compare to threshold values
+    if (( $(echo "${rate_rx} >= ${CRITICAL_LEVEL}" | bc -l) || $(echo "${rate_tx} >= ${CRITICAL_LEVEL}" | bc -l) )); then
+        handle_critical "${message}" "${data}"
+    elif (( $(echo "${rate_rx} >= ${WARNING_LEVEL}" | bc -l) || $(echo "${rate_tx} >= ${WARNING_LEVEL}" | bc -l) )); then
+        handle_warning "${message}" "${data}"
+    elif (( $(echo "${rate_rx} >= 0" | bc -l) && $(echo "${rate_tx} >= 0" | bc -l) )); then
+        handle_ok "${message}" "${data}"
+    else
+        handle_unknown "Invalid RX/TX values" "${data}"
+    fi
+
+}
+
+# Usage (-h parameter)
+function usage()
+{
+cat <<EOF
+  Usage: $0 [ -h ] -i <interface> [ -c value ] [ -w value ]
+    -h, --help      : Print this screen
+    -i, --interface : Network interface to check (e.g., eth0)
+    -c, --critical  : Critical bandwidth transmitted or recieved (kB/s) [Default: ${CRITICAL_LEVEL}]
+    -w, --warning   : Warn bandwidth transmitted or recieved (kB/s) [Default: ${WARNING_LEVEL}]
+EOF
+    exit 0
+}
+
+# Process Arguments
+function process_arguments()
+{
+    # Check if no arguments is allowed
+    if [[ "${ALLOW_ZERO_INPUT}" = false ]] && [[ $# -eq 0 ]]; then
+        handle_unknown "No parameters given"
+    fi
+
+    # Define short and long options
+    SHORTOPTS=h,i:,c:,w:
+    LONGOPTS=help,interface:,critical:,warning:
+
+    # Parse options using getopt
+    OPTIONS=$(getopt --options=$SHORTOPTS --longoptions=$LONGOPTS --name "$0" -- "$@")
+    if [[ $? -ne 0 ]]; then
+        handle_unknown "Failed to parse arguments"
+    fi
+
+    # Reorder positional parameters
+    eval set -- "${OPTIONS}"
+
+    while true; do
+        case "$1" in
+            -h|--help)
+                usage
+                ;;
+            -c|--critical)
+                CRITICAL_LEVEL="$2"
+                shift 2
+                ;;
+            -w|--warning)
+                WARNING_LEVEL="$2"
+                shift 2
+                ;;
+            -i|--interface)
+                INTERFACE="$2"
+                shift 2
+                ;;     
+            --)
+                shift
+                break
+                ;;
+            *)
+                handle_unknown "Unknown option: $1"
+                ;;
+        esac
+    done
+
+    # Validate interface set
+    if [ -z "$INTERFACE" ]; then
+        handle_unknown "A network interface has not been specified"
+    fi
+
+    # Validate warning and critical values
+    if (( $(echo "${WARNING_LEVEL} >= ${CRITICAL_LEVEL}" | bc -l) )); then
+        handle_unknown "Warning threshold must be lower than critical threshold"
+    fi
+
+    main
+}
+
+# Handle OK / Warning / Critical / Unknown
+function handle_ok() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }OK - ${message}${perfdata:+ | ${perfdata}}"
+    exit 0
+}
+
+function handle_warning() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }WARNING - ${message}${perfdata:+ | ${perfdata}}"
+    exit 1
+}
+
+function handle_critical() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }CRITICAL - ${message}${perfdata:+ | ${perfdata}}"
+    exit 2
+}
+
+function handle_unknown() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }UNKNOWN - ${message}${perfdata:+ | ${perfdata}}"
+    exit 3
+}
+
+# Core
+process_arguments "${@}"

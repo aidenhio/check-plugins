@@ -1,0 +1,220 @@
+#!/bin/bash
+# shellcheck disable=SC2312
+
+# Plugin Name: check_ups
+# Description: Checks NUT's upsc output for a given device's values
+# Date: 12/10/2025
+
+# Flags
+ALLOW_ZERO_INPUT=false
+PREFIX="UPS"
+
+# Global Variables
+DEVICE="ups@localhost"
+BATTERY_WARN=50
+RUNTIME_WARN=300
+
+# Main
+function main()
+{
+    local rawOutput deviceStatus runtimeSeconds chargePercent onBattery outletPower batteryLow forcedShutdown
+    local batteryLowThreshold runtimeLowThreshold
+    local message data
+
+    # Set default low thresholds, could be overridden by upsc
+    batteryLowThreshold=20
+    runtimeLowThreshold=180
+
+    # Init all UPS stats
+    deviceStatus='Output unparseable'
+    runtimeSeconds=-1
+    chargePercent=-1
+    onBattery=-1
+    outletPower=-1
+    batteryLow=-1
+    forcedShutdown=-1
+
+    # Check if upsc command installed
+    if ! command -v upsc >/dev/null 2>&1; then
+        handle_unknown "upsc command not available"
+    fi
+
+    # Run check
+    IFS=$'\n'
+    rawOutput=( $(upsc "$DEVICE" 2>&1 | grep -v "^Init SSL") )
+
+    # Parse output to get UPS info
+    for line in ${rawOutput[@]}; do
+        if [[ $line =~ ^ups.status ]]; then
+            lineStatus=$(textValue $line)
+            case $lineStatus in
+                'OL') deviceStatus='Power available'; onBattery=0;;
+                'OB') deviceStatus='Running on battery'; onBattery=1;;
+                'OL DISCHRG') deviceStatus="Online discharging"; onBattery=0;;
+                'OL CHRG') deviceStatus="Online charging"; onBattery=0;;
+                'OB LB') deviceStatus='Running on low battery'; onBattery=1 batteryLow=1;;
+                'FSD OB LB') deviceStatus='Shutdown initiated'; onBattery=1; forcedShutdown=1;;
+            esac
+        elif [[ $line =~ ^battery.runtime: ]]; then
+            runtimeSeconds=$(value $line)
+        elif [[ $line =~ ^battery.runtime.low ]]; then
+            runtimeLowThreshold=$(value $line)
+        elif [[ $line =~ ^battery.charge: ]]; then
+            chargePercent=$(value $line)
+        elif [[ $line =~ ^battery.charge.low ]]; then
+            batteryLowThreshold=$(value $line)
+        elif [[ $line =~ ^input.voltage ]]; then
+            inputVoltage=$(value $line)
+        elif [[ $line =~ ^ups.load ]]; then
+            outputLoad=$(value $line)
+        fi
+    done
+
+    # Generate check output
+    message="$DEVICE $deviceStatus (Charge $chargePercent%, runtime ${runtimeSeconds}s)"
+    data="charge=$chargePercent%;$BATTERY_WARN;$batteryLowThreshold, runtime=${runtimeSeconds}s;$RUNTIME_WARN;$runtimeLowThreshold, load=$outputLoad%, inputVoltage=${inputVoltage}V"
+
+    # Determine status by current charge or by remaining runtime
+    if [ $onBattery -eq 1 ]; then
+        if [ $forcedShutdown -eq 1 ] || [ $batteryLow -eq 1 ]; then
+            handle_critical "${message}" "${data}"
+        elif [ $chargePercent -lt $batteryLowThreshold ] || [ $runtimeSeconds -lt $runtimeLowThreshold ]; then                
+            handle_critical "${message}, system might shutdown soon" "${data}"
+        elif [ $chargePercent -lt $batteryWarnThreshold ] || [ $runtimeSeconds -lt $runtimeWarnThreshold ]; then
+            handle_warning "${message}, shutdown likely" "${data}"
+        else
+            handle_ok "${message} with full service" "${data}"
+        fi
+    elif [ $onBattery -eq 0 ]; then
+        if [[ $chargePercent -lt $batteryWarnThreshold ]]; then
+            handle_warning "${message}, but charge still low" "${data}"
+        else
+            handle_ok "${message}" "${data}"
+        fi
+    fi
+
+    # Error if batteryWarn < batteryLow
+    if [ $BATTERY_WARN -lt $batteryLowThreshold ]; then
+        handle_unknown "Battery warning threshold $BATTERY_WARN% is lower than critcal threshold $batteryLowThreshold and will never cause warnings"
+    fi
+
+    # Error if runtimeWarn < runtime Low
+    if [ $RUNTIME_WARN -lt $runtimeLowThreshold ]; then
+        handle_unknown "Runtime warning threshold $RUNTIME_WARN is lower than critical threshold $runtimeLowThreshold and will never cause warnings"
+    fi
+}
+
+# Helpers
+function value {
+        num=${1#* }
+        printf "%.0f" $num
+}
+
+function textValue {
+        echo ${1#* }
+}
+
+# Usage (-h parameter)
+function usage()
+{
+cat <<EOF
+  Usage: $0 [ -h ] -d device [ -b ] [ -r ]
+    -h, --help      : Print this screen
+    -d, --device    : Device that will be queried by this check
+    -b, --battery   : Warning threshold, value battery.charge (percent)
+    -r, --runtime   : Warning threshold, value battery.runtime (seconds)
+
+    It is not possible to override critical threshold as they
+    are determined by the UPS driver. These thresholds force a
+    shutdown and masking them with monitoring values is dangerous.
+EOF
+    exit 0
+}
+
+# Process Arguments
+function process_arguments()
+{
+    # Check if no arguments is allowed
+    if [[ "${ALLOW_ZERO_INPUT}" = false ]] && [[ $# -eq 0 ]]; then
+        handle_unknown "No parameters given"
+    fi
+
+    # Define short and long options
+    SHORTOPTS=h,d:,b:,r:
+    LONGOPTS=help,device:,battery:,runtime:
+
+    # Parse options using getopt
+    OPTIONS=$(getopt --options=$SHORTOPTS --longoptions=$LONGOPTS --name "$0" -- "$@")
+    if [[ $? -ne 0 ]]; then
+        handle_unknown "Failed to parse arguments"
+    fi
+
+    # Reorder positional parameters
+    eval set -- "${OPTIONS}"
+
+    while true; do
+        case "$1" in
+            -h|--help)
+                usage
+                ;;
+            -d|--device)
+                DEVICE="$2"
+                shift 2
+                ;;
+            -b|--battery)
+                BATTERY_WARN="$2"
+                shift 2
+                ;;
+            -r|--runtime)
+                RUNTIME_WARN="$2"
+                shift 2
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                handle_unknown "Unknown option: $1"
+                ;;
+        esac
+    done
+
+    # Validate arguments
+    if [ $BATTERY_WARN -gt 100 ]; then
+        handle_unknown "Battery warning threshold is $BATTERY_WARN%, should not be >100%"
+    fi
+
+    main
+}
+
+# Handle OK / Warning / Critical / Unknown
+function handle_ok() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }OK - ${message}${perfdata:+ | ${perfdata}}"
+    exit 0
+}
+
+function handle_warning() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }WARNING - ${message}${perfdata:+ | ${perfdata}}"
+    exit 1
+}
+
+function handle_critical() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }CRITICAL - ${message}${perfdata:+ | ${perfdata}}"
+    exit 2
+}
+
+function handle_unknown() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }UNKNOWN - ${message}${perfdata:+ | ${perfdata}}"
+    exit 3
+}
+
+# Core
+process_arguments "${@}"

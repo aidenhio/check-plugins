@@ -1,40 +1,49 @@
 #!/bin/bash
 # shellcheck disable=SC2312
 
-# Plugin Name: check_template
-# Description: Simulates a check with random value and thresholds
-# Date: 01/01/2025
+# Plugin Name: check_file
+# Description: Check for the (non) existence of a file',
+# Date: 05/10/2025
 
 # Flags
-ALLOW_ZERO_INPUT=true
-PREFIX="TEMPLATE"
+ALLOW_ZERO_INPUT=false
+PREFIX="FILE"
 
 # Global Variables
-WARNING_LEVEL=75
-CRITICAL_LEVEL=90
+MODE=""
+WARN_MODE=false
+FILE_PATH=""
 
 # Main
 function main()
 {
-    local test
-    local message data
-
-    # Run check
-    test=$((1 + RANDOM % 100))
+    local present_message absent_message
 
     # Generate output
-    message="This is a message"
-    data="0,0,0"
+    present_message="${FILE_PATH} found"
+    absent_message="${FILE_PATH} not found"
 
-    # Compare to threshold values
-    if (( $(echo "${test} >= ${CRITICAL_LEVEL}" | bc -l) )); then
-        handle_critical "${message}" "${data}"
-    elif (( $(echo "${test} >= ${WARNING_LEVEL}" | bc -l) )); then
-        handle_warning "${message}" "${data}"
-    elif (( $(echo "${test} >= 0" | bc -l) )); then
-        handle_ok "${message}" "${data}"
-    else
-        handle_unknown "Invalid value" "${data}"
+    # Check for file
+    if [[ "$MODE" == "--present" ]]; then
+        if [[ -e "$FILE_PATH" ]]; then
+            handle_ok "${present_message}"
+        else
+            if [[ "$WARN_MODE" == true ]]; then
+                handle_warning "${absent_message}"
+            else
+                handle_critical "${absent_message}"
+            fi
+        fi
+    elif [[ "$MODE" == "--absent" ]]; then
+        if [[ -e "$FILE_PATH" ]]; then
+            if [[ "$WARN_MODE" == true ]]; then
+                handle_warning "${present_message}"
+            else
+                handle_critical "${present_message}"
+            fi
+        else
+            handle_ok "${absent_message}"
+        fi
     fi
 }
 
@@ -42,10 +51,11 @@ function main()
 function usage()
 {
 cat <<EOF
-  Usage: $0 [ -h ] [ -c value ] [ -w value ]
-    -h, --help      : Print this screen
-    -c, --critical  : Critical level [Default: ${CRITICAL_LEVEL}]
-    -w, --warning   : Warn level [Default: ${WARNING_LEVEL}]
+  Usage: $0 [--present | --absent] <file_path>
+    --present        : OK if file exists, CRITICAL if not
+    --absent         : OK if file does not exist, CRITICAL if it does
+    --warn           : Warn instead of critical
+    -h, --help       : Print this screen
 EOF
     exit 0
 }
@@ -59,8 +69,8 @@ function process_arguments()
     fi
 
     # Define short and long options
-    SHORTOPTS=h,c:,w:
-    LONGOPTS=help,critical:,warning:
+    SHORTOPTS=h
+    LONGOPTS=help,present,absent,warn
 
     # Parse options using getopt
     OPTIONS=$(getopt --options=$SHORTOPTS --longoptions=$LONGOPTS --name "$0" -- "$@")
@@ -76,13 +86,17 @@ function process_arguments()
             -h|--help)
                 usage
                 ;;
-            -c|--critical)
-                CRITICAL_LEVEL="$2"
-                shift 2
+            --present)
+                MODE="--present"
+                shift
                 ;;
-            -w|--warning)
-                WARNING_LEVEL="$2"
-                shift 2
+            --absent)
+                MODE="--absent"
+                shift
+                ;;
+            --warn)
+                WARN_MODE=true
+                shift
                 ;;
             --)
                 shift
@@ -94,9 +108,11 @@ function process_arguments()
         esac
     done
 
-    # Validate warning and critical values
-    if (( $(echo "${WARNING_LEVEL} >= ${CRITICAL_LEVEL}" | bc -l) )); then
-        handle_unknown "Warning threshold must be lower than critical threshold"
+    FILE_PATH="$1"
+
+    # Error if arguments missing
+    if [[ -z "$MODE" || -z "$FILE_PATH" ]]; then
+        handle_unknown "Missing required arguments"
     fi
 
     main

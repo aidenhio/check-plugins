@@ -1,0 +1,172 @@
+#!/bin/bash
+# shellcheck disable=SC2312
+
+# Plugin Name: check_cpu
+# Description: Check CPU utilisation - user,system,iowait,idle in %
+# Date: 08/10/2025
+
+# Flags
+ALLOW_ZERO_INPUT=true
+PREFIX="CPU"
+
+# Global Variables
+IOSTAT=/usr/bin/iostat
+WARNING_LEVEL=30
+CRITICAL_LEVEL=100
+INTERVAL_SEC=1
+NUM_REPORT=3
+
+# Main
+function main()
+{
+    local cpu_report cpu_report_sections cpu_user cpu_nice cpu_system cpu_iowait cpu_iowait_major
+    local cpu_steal cpu_idle cpu_usage cpu_usage_major
+    local message data
+
+    # Check iostat installed
+    if [ ! -x $IOSTAT ]; then
+	    handle_unknown "iostat not found or is not executable"
+    fi
+
+    # Get common CPU stats
+    cpu_report=`iostat -c $INTERVAL_SEC $NUM_REPORT | sed -e 's/,/./g' | tr -s ' ' ';' | sed '/^$/d' | tail -1` 
+    cpu_report_sections=`echo ${cpu_report} | grep ';' -o | wc -l` 
+    cpu_user=`echo ${cpu_report} | cut -d ";" -f 2` 
+    cpu_nice=`echo ${cpu_report}  | cut -d ";" -f 3` 
+    cpu_system=`echo ${cpu_report} | cut -d ";" -f 4` 
+    cpu_iowait=`echo ${cpu_report} | cut -d ";" -f 5` 
+    cpu_iowait_major=`echo ${cpu_iowait} | cut -d "." -f 1`
+
+    # Get additionals stats if supported and generate output
+    if [ ${cpu_report_sections} -ge 6 ]; then
+        cpu_steal=`echo ${cpu_report} | cut -d ";" -f 6`
+        cpu_idle=`echo ${cpu_report} | cut -d ";" -f 7`
+        cpu_usage=`echo 100 ${cpu_idle} | awk '{printf "%.2f", $1-$2}'`
+
+        message="${cpu_usage}% (user=${cpu_user}%, system=${cpu_system}%, iowait=${cpu_iowait}%, idle=${cpu_idle}%, nice=${cpu_nice}%, steal=${cpu_steal}%)"
+        data="cpu_usage=${cpu_usage};${WARNING_LEVEL};${CRITICAL_LEVEL};; cpu_user=${cpu_user};;;; cpu_system=${cpu_system};;;; cpu_iowait=${cpu_iowait};;;; cpu_idle=${cpu_idle};;;; cpu_nice=${cpu_nice};;;; cpu_steal=${cpu_steal};;;;"
+    else
+        cpu_idle=`echo ${cpu_report} | cut -d ";" -f 6`
+        cpu_usage=`echo 100 ${cpu_idle} | awk '{printf "%.2f", $1-$2}'`
+
+        message="${cpu_usage}% (user=${cpu_user}%, system=${cpu_system}%, iowait=${cpu_iowait}%, idle=${cpu_idle}%, nice=${cpu_nice}%)"
+        data="cpu_usage=${cpu_usage};${WARNING_LEVEL};${CRITICAL_LEVEL};; cpu_user=${cpu_user};;;; cpu_system=${cpu_system};;;; cpu_iowait=${cpu_iowait};;;; cpu_idle=${cpu_idle};;;; cpu_nice=${cpu_nice};;;;"
+    fi
+
+    # Compare to threshold values
+    cpu_usage_major=`echo ${cpu_usage} | awk '{printf "%.0f", $1}'`
+
+    if [ ${cpu_usage_major} -ge $WARNING_LEVEL ] && [ ${cpu_usage_major} -lt $CRITICAL_LEVEL ]; then
+        handle_warning "${message}" "${data}"
+    elif [ ${cpu_usage_major} -ge $CRITICAL_LEVEL ]; then
+        handle_critical "${message}" "${data}"
+    else
+        handle_ok "${message}" "${data}"
+    fi
+}
+
+# Usage (-h parameter)
+function usage()
+{
+cat <<EOF
+  Usage: $0 [ -h ] [ -c value ] [ -w value ] [ -i value ] [ -n value ]
+    -h, --help      : Print this screen
+    -c, --critical  : Critical level in % for cpu iowait [Default: ${CRITICAL_LEVEL}]
+    -w, --warning   : Warning level in % for cpu iowait [Default: ${WARNING_LEVEL}]
+    -i, --interval  : Interval in seconds for iostat [Default: ${INTERVAL_SEC}]
+    -n, --number    : Number report for iostat [Default: ${NUM_REPORT}]
+EOF
+    exit 0
+}
+
+# Process Arguments
+function process_arguments()
+{
+    # Check if no arguments is allowed
+    if [[ "${ALLOW_ZERO_INPUT}" = false ]] && [[ $# -eq 0 ]]; then
+        handle_unknown "No parameters given"
+    fi
+
+    # Define short and long options
+    SHORTOPTS=h,c:,w:,i:,n:
+    LONGOPTS=help,critical:,warning:,interval:,number:
+
+    # Parse options using getopt
+    OPTIONS=$(getopt --options=$SHORTOPTS --longoptions=$LONGOPTS --name "$0" -- "$@")
+    if [[ $? -ne 0 ]]; then
+        handle_unknown "Failed to parse arguments"
+    fi
+
+    # Reorder positional parameters
+    eval set -- "${OPTIONS}"
+
+    while true; do
+        case "$1" in
+            -h|--help)
+                usage
+                ;;
+            -c|--critical)
+                CRITICAL_LEVEL="$2"
+                shift 2
+                ;;
+            -w|--warning)
+                WARNING_LEVEL="$2"
+                shift 2
+                ;;
+            -i|--interval)
+                INTERVAL_SEC="$2"
+                shift 2
+                ;;
+            -n|--number)
+                NUM_REPORT="$2"
+                shift 2
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                handle_unknown "Unknown option: $1"
+                ;;
+        esac
+    done
+
+    # Validate warning and critical values
+    if (( $(echo "${WARNING_LEVEL} >= ${CRITICAL_LEVEL}" | bc -l) )); then
+        handle_unknown "Warning threshold must be lower than critical threshold"
+    fi
+
+    main
+}
+
+# Handle OK / Warning / Critical / Unknown
+function handle_ok() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }OK - ${message}${perfdata:+ | ${perfdata}}"
+    exit 0
+}
+
+function handle_warning() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }WARNING - ${message}${perfdata:+ | ${perfdata}}"
+    exit 1
+}
+
+function handle_critical() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }CRITICAL - ${message}${perfdata:+ | ${perfdata}}"
+    exit 2
+}
+
+function handle_unknown() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }UNKNOWN - ${message}${perfdata:+ | ${perfdata}}"
+    exit 3
+}
+
+# Core
+process_arguments "${@}"
