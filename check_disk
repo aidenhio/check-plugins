@@ -17,7 +17,8 @@ MOUNT="/"
 # Main
 function main()
 {
-    local df_out used_pct avail_kb total_kb used_kb
+    local df_out avail_kb total_kb used_kb 
+    local used_pct warn_pct crit_pct
     local f_free f_total f_used
     local message data
 
@@ -27,17 +28,22 @@ function main()
         handle_unknown "Mount point not found: $MOUNT"
     fi
 
-    used_pct=$(echo "$df_out" | awk '{print $5}' | tr -d '%')
+    # Calculate disk usage values
     avail_kb=$(echo "$df_out" | awk '{print $4}')
     total_kb=$(echo "$df_out" | awk '{print $2}')
-    used_kb=$(( total_kb - avail_kb ))
+    used_kb=$(echo "$df_out" | awk '{print $3}')
+
+    used_pct=$(echo "$df_out" | awk '{print $5}' | tr -d '%')
+    warn_pct=$(awk "BEGIN {print int(($WARNING_LEVEL / 100) * $total_kb )}")
+    crit_pct=$(awk "BEGIN {print int(($CRITICAL_LEVEL / 100) * $total_kb )}")
 
     # Generate output
     f_free=$(format_bytes "$avail_kb")
     f_total=$(format_bytes "$total_kb")
     f_used=$(format_bytes "$used_kb")
-    message="$MOUNT is ${used_pct}% used, ${f_free} free of ${f_total} (${f_used} used)"
-    data="used=${used_kb}KB, free=${avail_kb}KB"
+    # message="$MOUNT is ${used_pct}% used, ${f_free} free of ${f_total} (${f_used} used)"
+    message="$MOUNT is ${used_pct}% used, ${f_used} used of ${f_total} (${f_free} free)"
+    data="disk_used=${used_kb}KB;${warn_pct};${crit_pct};; disk_free=${avail_kb}KB;;;;"
 
     # Compare to threshold values
     if (( $(echo "${used_pct}  >= ${CRITICAL_LEVEL}" | bc -l) )); then
@@ -76,7 +82,7 @@ function format_bytes() {
 function usage()
 {
 cat <<EOF
-  Usage: $0 [ -h ] -p <path >[ -c value ] [ -w value ]
+  Usage: $0 [ -h ] -p <path> [ -c value ] [ -w value ]
     -h, --help      : Print this screen
     -p, --path      : Mount point to check [Default: ${MOUNT_POINT}]
     -c, --critical  : Critical percentage of disk used [Default: ${CRITICAL_LEVEL}]

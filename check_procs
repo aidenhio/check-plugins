@@ -25,7 +25,7 @@ function main()
 
     # Generate output
     message="${processes} processes (${zombies} zombie processes)"
-    data="processes=${processes};$WARNING_LEVEL;$CRITICAL_LEVEL;; zombies=${zombies};;;;"
+    data="procs_total=${processes};$WARNING_LEVEL;$CRITICAL_LEVEL;; procs_zombie=${zombies};;;;"
 
     # Compare to threshold values
     if (( $(echo "${processes} >= ${CRITICAL_LEVEL}" | bc -l) )); then

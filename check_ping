@@ -1,0 +1,188 @@
+#!/bin/bash
+# shellcheck disable=SC2312
+
+# Plugin Name: check_ping
+# Description: Check if host replies to ping
+# Date: 20/10/2025
+
+# Flags
+ALLOW_ZERO_INPUT=false
+PREFIX="PING"
+
+# Global Variables
+HOST=""
+WARNING_RTA=100
+CRITICAL_RTA=300
+WARNING_LOSS=20
+CRITICAL_LOSS=50
+PING_COUNT=5
+PING_TIMEOUT=10
+
+
+# Main
+function main()
+{
+    local ping_output ping_exit ping_loss ping_rta
+    local message data
+
+    # Run check
+    ping_output=$(ping -c "${PING_COUNT}" -W "${PING_TIMEOUT}" "${HOST}" 2>&1)
+    ping_exit=$?
+
+    # Handle host DNS failure, unreachable or other error
+    if (echo "${ping_output}" | grep -qE "No address associated|Name or service not known"); then
+        handle_unknown "DNS resolution failed for ${HOST}"
+    elif (echo "${ping_output}" | grep -qE "Destination Host Unreachable|100% packet loss|0 received"); then
+        handle_unknown "Host unreachable from source"
+    elif [ "${ping_exit}" -ne 0 ]; then
+        handle_unknown "Ping failed with unexpected error"
+    fi
+
+    # Extract metrics
+    ping_loss=$(echo "${ping_output}" | awk -F',' '/packet loss/ {print $3}' | awk '{print $1}' | tr -d '%')
+    ping_rta=$(echo "${ping_output}" | awk -F'=' '/rtt/ {print $2}' | cut -d'/' -f2)
+
+    # Generate output
+    message="Packet loss ${ping_loss}%, RTA ${ping_rta} ms"
+    data="ping_loss=${ping_loss}%;${WARNING_LOSS};${CRITICAL_LOSS};; ping_rta=${ping_rta}ms;${WARNING_RTA};${CRITICAL_RTA};;"
+
+    # Compare to threshold values
+    if [[ $(echo "${ping_loss} >= ${CRITICAL_LOSS}" | bc -l) -eq 1 ]] || \
+    [[ $(echo "${ping_rta} >= ${CRITICAL_RTA}" | bc -l) -eq 1 ]]; then
+        handle_critical "${message}" "${data}"
+    elif [[ $(echo "${ping_loss} >= ${WARNING_LOSS}" | bc -l) -eq 1 ]] || \
+        [[ $(echo "${ping_rta} >= ${WARNING_RTA}" | bc -l) -eq 1 ]]; then
+        handle_warning "${message}" "${data}"
+    else
+        handle_ok "${message}" "${data}"
+    fi
+}
+
+# Usage (-h parameter)
+function usage()
+{
+cat <<EOF
+  Usage: $0 -H <value> [ -h ] [ -c value ] [ -w value ] [ -p value ] [ -t value ]
+    -h, --help          : Print this screen
+    -H, --host          : Host to ping
+    -p, --packets       : Number of ICMP ECHO packets to send [Default: ${PING_COUNT}]
+    -t, --timeout       : Seconds before ping connection times out [Default: ${PING_TIMEOUT}]
+    -c, --critical-loss : Critical level of packet loss in percentage [Default: ${CRITICAL_LOSS}]
+    -w, --warning-loss  : Warn level of packet loss in percentage [Default: ${WARNING_LOSS}]
+    --critical-rta      : Critical round-trip ICMP packet time in ms [Default: ${CRITICAL_LOSS}]
+    --warning-rta       : Warn round-trip ICMP packet time in ms [Default: ${WARNING_LEVEL}]
+EOF
+    exit 0
+}
+
+# Process Arguments
+function process_arguments()
+{
+    # Check if no arguments is allowed
+    if [[ "${ALLOW_ZERO_INPUT}" = false ]] && [[ $# -eq 0 ]]; then
+        handle_unknown "No parameters given"
+    fi
+
+    # Define short and long options
+    SHORTOPTS=h,H:,p:,t:,c:,w:
+    LONGOPTS=help,host:,packets:,timeout,critical-loss:,warning-loss:,critical-rta:,warning-rta:
+
+    # Parse options using getopt
+    OPTIONS=$(getopt --options=$SHORTOPTS --longoptions=$LONGOPTS --name "$0" -- "$@")
+    if [[ $? -ne 0 ]]; then
+        handle_unknown "Failed to parse arguments"
+    fi
+
+    # Reorder positional parameters
+    eval set -- "${OPTIONS}"
+
+    while true; do
+        case "$1" in
+            -h|--help)
+                usage
+                ;;
+            -H|--host)
+                HOST="$2"
+                shift 2
+                ;;
+            -p|--packets)
+                PING_COUNT="$2"
+                shift 2
+                ;;
+            -t|--timeout)
+                PING_TIMEOUT="$2"
+                shift 2
+                ;;         
+            -c|--critical-loss)
+                CRITICAL_LOSS="$2"
+                shift 2
+                ;;
+            -w|--warning-loss)
+                WARNING_LOSS="$2"
+                shift 2
+                ;;
+            --critical-rta)
+                CRITICAL_RTA="$2"
+                shift 2
+                ;;
+            --warning-rta)
+                WARNING_RTA="$2"
+                shift 2
+                ;;    
+            --)
+                shift
+                break
+                ;;
+            *)
+                handle_unknown "Unknown option: $1"
+                ;;
+        esac
+    done
+
+    # Validate warning and critical values
+    if [ -z "${HOST}" ]; then
+        handle_unknown "Host invalid or not specified"
+    fi
+
+    if (( $(echo "${WARNING_LOSS} >= ${CRITICAL_LOSS}" | bc -l) )); then
+        handle_unknown "Warning packet loss threshold must be lower than critical packet loss threshold"
+    fi
+
+    if (( $(echo "${WARNING_RTA} >= ${CRITICAL_RTA}" | bc -l) )); then
+        handle_unknown "Warning round-trip time threshold must be lower than critical round-trip time threshold"
+    fi
+
+    main
+}
+
+# Handle OK / Warning / Critical / Unknown
+function handle_ok() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }OK - ${message}${perfdata:+ | ${perfdata}}"
+    exit 0
+}
+
+function handle_warning() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }WARNING - ${message}${perfdata:+ | ${perfdata}}"
+    exit 1
+}
+
+function handle_critical() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }CRITICAL - ${message}${perfdata:+ | ${perfdata}}"
+    exit 2
+}
+
+function handle_unknown() {
+    local message="${1:-}"
+    local perfdata="${2:-}"
+    echo "${PREFIX:+${PREFIX} }UNKNOWN - ${message}${perfdata:+ | ${perfdata}}"
+    exit 3
+}
+
+# Core
+process_arguments "${@}"

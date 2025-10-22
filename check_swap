@@ -46,7 +46,7 @@ function main()
     f_swap_free=$(format_bytes "$swap_free")
     f_swap_used=$(format_bytes "$swap_used")
     message="${swap_used_pct}% swap used (${f_swap_used} used of ${f_swap_total}, ${f_swap_free} free)"
-    data="total=${swap_total};;;; used=${swap_used};${swap_warn_pct};${swap_crit_pct};; free=${swap_free};;;;"
+    data="swap_total=${swap_total}KB;;;; swap_used=${swap_used}KB;${swap_warn_pct};${swap_crit_pct};; swap_free=${swap_free}KB;;;;"
 
     # Compare to threshold values
     if (( $(echo "${swap_used_pct} >= ${CRITICAL_LEVEL}" | bc -l) )); then

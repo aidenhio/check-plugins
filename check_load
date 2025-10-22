@@ -30,7 +30,7 @@ function main()
 
     # Generate output
     message="Load average: ${l1}, ${l5}, ${l15}"
-    data="load1=${l1};${w1};${c1} load5=${l5};${w5};${c5} load15=${l15};${w15};${c15}"
+    data="load_1m=${l1};${w1};${c1} load_5m=${l5};${w5};${c5} load_15m=${l15};${w15};${c15}"
     
     # Error on non-number load average value
     if ! [[ "$l1" =~ ^[0-9]+(\.[0-9]+)?$ && "$l5" =~ ^[0-9]+(\.[0-9]+)?$ && "$l15" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then

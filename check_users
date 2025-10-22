@@ -36,7 +36,7 @@ function main()
         message="${user_count} users currently logged in"
     fi
 
-    data="users=${user_count};$WARNING_LEVEL;$CRITICAL_LEVEL;;"
+    data="users_total=${user_count};$WARNING_LEVEL;$CRITICAL_LEVEL;;"
 
     # Compare to threshold values
     if (( $(echo "${user_count} >= ${CRITICAL_LEVEL}" | bc -l) )); then

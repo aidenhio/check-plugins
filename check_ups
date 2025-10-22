@@ -72,7 +72,7 @@ function main()
 
     # Generate check output
     message="$DEVICE $deviceStatus (Charge $chargePercent%, runtime ${runtimeSeconds}s)"
-    data="charge=$chargePercent%;$BATTERY_WARN;$batteryLowThreshold, runtime=${runtimeSeconds}s;$RUNTIME_WARN;$runtimeLowThreshold, load=$outputLoad%, inputVoltage=${inputVoltage}V"
+    data="ups_charge=$chargePercent%;$BATTERY_WARN;$batteryLowThreshold, ups_runtime=${runtimeSeconds}s;$RUNTIME_WARN;$runtimeLowThreshold, ups_load=$outputLoad%, ups_input_voltage=${inputVoltage}V"
 
     # Determine status by current charge or by remaining runtime
     if [ $onBattery -eq 1 ]; then

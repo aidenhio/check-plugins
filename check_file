@@ -51,7 +51,8 @@ function main()
 function usage()
 {
 cat <<EOF
-  Usage: $0 [--present | --absent] <file_path>
+  Usage: $0 [--present | --absent] -f <file_path>
+    -f, --file       : Path of file to check
     --present        : OK if file exists, CRITICAL if not
     --absent         : OK if file does not exist, CRITICAL if it does
     --warn           : Warn instead of critical
@@ -69,8 +70,8 @@ function process_arguments()
     fi
 
     # Define short and long options
-    SHORTOPTS=h
-    LONGOPTS=help,present,absent,warn
+    SHORTOPTS=h.f:
+    LONGOPTS=help,file:,present,absent,warn
 
     # Parse options using getopt
     OPTIONS=$(getopt --options=$SHORTOPTS --longoptions=$LONGOPTS --name "$0" -- "$@")
@@ -86,6 +87,10 @@ function process_arguments()
             -h|--help)
                 usage
                 ;;
+            -f|--file)
+                FILE_PATH="$2"
+                shift 2
+                ;;        
             --present)
                 MODE="--present"
                 shift
@@ -107,8 +112,6 @@ function process_arguments()
                 ;;
         esac
     done
-
-    FILE_PATH="$1"
 
     # Error if arguments missing
     if [[ -z "$MODE" || -z "$FILE_PATH" ]]; then

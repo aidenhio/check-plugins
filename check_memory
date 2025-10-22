@@ -43,7 +43,7 @@ function main()
     f_mem_free=$(format_bytes "$mem_free")
     f_mem_used=$(format_bytes "$mem_used")
     message="${mem_used_pct}% memory used (${f_mem_used} used of ${f_mem_total}, ${f_mem_free} free)"
-    data="mem_total=${mem_total};;;; mem_used=${mem_used};${mem_warn_pct};${mem_crit_pct};; mem_free=${mem_free};;;; mem_cached=${mem_cached};;;; mem_buffers=${mem_buffers};;;;"
+    data="mem_total=${mem_total}KB;;;; mem_used=${mem_used}KB;${mem_warn_pct};${mem_crit_pct};; mem_free=${mem_free}KB;;;; mem_cached=${mem_cached}KB;;;; mem_buffers=${mem_buffers}KB;;;;"
 
     # Compare to threshold values
     if (( $(echo "${mem_used_pct} >= ${CRITICAL_LEVEL}" | bc -l) )); then

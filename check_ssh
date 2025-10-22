@@ -22,7 +22,7 @@ function main()
     if [[ -n "$BANNER" && "$BANNER" =~ ^SSH-([0-9.]+)-(OpenSSH.*) ]]; then
         VERSION="${BASH_REMATCH[2]}"
         VERSION="${VERSION//$'\r'/}"
-        handle_ok "$HOST:$PORT is reachable $VERSION"
+        handle_ok "$HOST:$PORT is reachable ($VERSION)"
     else
         handle_critical "No banner or connection failed to $HOST:$PORT"
     fi

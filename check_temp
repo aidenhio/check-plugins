@@ -43,7 +43,7 @@ function main()
         fi
 
         # Generate perfdata
-        data="cpu_temp=${temp};${WARNING_LEVEL};${CRITICAL_LEVEL};;"
+        data="cpu_temp=${temp}°C;${WARNING_LEVEL};${CRITICAL_LEVEL};;"
     else
         # x86: look for Core 0 or Package id 0
         all_core_temps=()
@@ -61,7 +61,7 @@ function main()
         temp=$(printf "%s\n" "${all_core_temps[@]}" | sort -nr | head -n1)
 
         # Generate perfdata
-        data="cpu_temp=${temp};${WARNING_LEVEL};${CRITICAL_LEVEL};; "
+        data="cpu_temp=${temp}°C;${WARNING_LEVEL};${CRITICAL_LEVEL};; "
         for i in "${!all_core_temps[@]}"; do
             data+="core${i}=${all_core_temps[$i]};;;; "
         done

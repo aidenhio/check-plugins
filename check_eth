@@ -1,18 +1,19 @@
 #!/bin/bash
 # shellcheck disable=SC2312
 
-# Plugin Name: check_net
+# Plugin Name: check_eth
 # Description: Checks interface rx and tx
 # Date: 13/10/2025
 
 # Flags
 ALLOW_ZERO_INPUT=false
-PREFIX="NET"
+PREFIX="ETH"
 
 # Global Variables
 WARNING_LEVEL=10
 CRITICAL_LEVEL=100
 INTERFACE=""
+STATE_DIR="/opt/icinga2/plugins/cache"
 
 # Main
 function main()
@@ -25,7 +26,7 @@ function main()
     stat_path="/sys/class/net/$INTERFACE/statistics"
     file_rx="${stat_path}/rx_bytes"
     file_tx="${stat_path}/tx_bytes"
-    state_file="/tmp/check_net_${INTERFACE}.state"
+    state_file="${STATE_DIR}/check_eth_${INTERFACE}"
 
     # Validate stats can be accessed
     if [ ! -r "$file_rx" ] || [ ! -r "$file_tx" ]; then
@@ -56,7 +57,7 @@ function main()
 
     # Generate output
     message="Sent ${rate_tx} kB/s, recieved ${rate_rx} kB/s"
-    data="bytes_sent=$rate_tx;$WARNING_LEVEL;$CRITICAL_LEVEL;; bytes_recv=$rate_rx;$WARNING_LEVEL;$CRITICAL_LEVEL;;"
+    data="eth_sent=${rate_tx}kB;$WARNING_LEVEL;$CRITICAL_LEVEL;; eth_recv=${rate_rx}kB;$WARNING_LEVEL;$CRITICAL_LEVEL;;"
 
     # Compare to threshold values
     if (( $(echo "${rate_rx} >= ${CRITICAL_LEVEL}" | bc -l) || $(echo "${rate_tx} >= ${CRITICAL_LEVEL}" | bc -l) )); then
@@ -121,7 +122,7 @@ function process_arguments()
             -i|--interface)
                 INTERFACE="$2"
                 shift 2
-                ;;     
+                ;;
             --)
                 shift
                 break

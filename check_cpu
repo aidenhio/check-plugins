@@ -44,13 +44,13 @@ function main()
         cpu_usage=`echo 100 ${cpu_idle} | awk '{printf "%.2f", $1-$2}'`
 
         message="${cpu_usage}% (user=${cpu_user}%, system=${cpu_system}%, iowait=${cpu_iowait}%, idle=${cpu_idle}%, nice=${cpu_nice}%, steal=${cpu_steal}%)"
-        data="cpu_usage=${cpu_usage};${WARNING_LEVEL};${CRITICAL_LEVEL};; cpu_user=${cpu_user};;;; cpu_system=${cpu_system};;;; cpu_iowait=${cpu_iowait};;;; cpu_idle=${cpu_idle};;;; cpu_nice=${cpu_nice};;;; cpu_steal=${cpu_steal};;;;"
+        data="cpu_usage=${cpu_usage}%;${WARNING_LEVEL};${CRITICAL_LEVEL};; cpu_user=${cpu_user}%;;;; cpu_system=${cpu_system}%;;;; cpu_iowait=${cpu_iowait}%;;;; cpu_idle=${cpu_idle}%;;;; cpu_nice=${cpu_nice}%;;;; cpu_steal=${cpu_steal}%;;;;"
     else
         cpu_idle=`echo ${cpu_report} | cut -d ";" -f 6`
         cpu_usage=`echo 100 ${cpu_idle} | awk '{printf "%.2f", $1-$2}'`
 
         message="${cpu_usage}% (user=${cpu_user}%, system=${cpu_system}%, iowait=${cpu_iowait}%, idle=${cpu_idle}%, nice=${cpu_nice}%)"
-        data="cpu_usage=${cpu_usage};${WARNING_LEVEL};${CRITICAL_LEVEL};; cpu_user=${cpu_user};;;; cpu_system=${cpu_system};;;; cpu_iowait=${cpu_iowait};;;; cpu_idle=${cpu_idle};;;; cpu_nice=${cpu_nice};;;;"
+        data="cpu_usage=${cpu_usage}%;${WARNING_LEVEL};${CRITICAL_LEVEL};; cpu_user=${cpu_user}%;;;; cpu_system=${cpu_system};;;; cpu_iowait=${cpu_iowait}%;;;; cpu_idle=${cpu_idle}%;;;; cpu_nice=${cpu_nice}%;;;;"
     fi
 
     # Compare to threshold values
