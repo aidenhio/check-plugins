@@ -38,12 +38,12 @@ function main()
     crit_pct=$(awk "BEGIN {print int(($CRITICAL_LEVEL / 100) * $total_kb )}")
 
     # Generate output
-    f_free=$(format_bytes "$avail_kb")
-    f_total=$(format_bytes "$total_kb")
-    f_used=$(format_bytes "$used_kb")
-    # message="$MOUNT is ${used_pct}% used, ${f_free} free of ${f_total} (${f_used} used)"
+    f_free=$(format_bits "$avail_kb")
+    f_total=$(format_bits "$total_kb")
+    f_used=$(format_bits "$used_kb")
+    
     message="$MOUNT is ${used_pct}% used, ${f_used} used of ${f_total} (${f_free} free)"
-    data="disk_used=${used_kb}KB;${warn_pct};${crit_pct};; disk_free=${avail_kb}KB;;;;"
+    data="disk_used=${used_kb}kib;${warn_pct};${crit_pct};; disk_free=${avail_kb}kib;;;; disk_total=${total_kb}kib;;;;"
 
     # Compare to threshold values
     if (( $(echo "${used_pct}  >= ${CRITICAL_LEVEL}" | bc -l) )); then
@@ -58,20 +58,20 @@ function main()
 }
 
 # Format byte values base on magnitude
-function format_bytes() {
+function format_bits() {
     local kb="$1"
-    local unit="KB"
+    local unit="KiB"
     local value="$kb"
 
     if (( kb >= 1024 * 1024 * 1024 )); then
         value=$(awk "BEGIN {printf \"%.2f\", $kb/1073741824}")
-        unit="TB"
+        unit="TiB"
     elif (( kb >= 1024 * 1024 )); then
         value=$(awk "BEGIN {printf \"%.2f\", $kb/1048576}")
-        unit="GB"
+        unit="GiB"
     elif (( kb >= 1024 )); then
         value=$(awk "BEGIN {printf \"%.2f\", $kb/1024}")
-        unit="MB"
+        unit="MiB"
     fi
 
     echo "${value}${unit}"

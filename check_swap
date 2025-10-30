@@ -42,11 +42,11 @@ function main()
     swap_crit_pct=$(awk "BEGIN {print int(($CRITICAL_LEVEL / 100) * $swap_total )}")
 
     # Generate output
-    f_swap_total=$(format_bytes "$swap_total")
-    f_swap_free=$(format_bytes "$swap_free")
-    f_swap_used=$(format_bytes "$swap_used")
+    f_swap_total=$(format_bits "$swap_total")
+    f_swap_free=$(format_bits "$swap_free")
+    f_swap_used=$(format_bits "$swap_used")
     message="${swap_used_pct}% swap used (${f_swap_used} used of ${f_swap_total}, ${f_swap_free} free)"
-    data="swap_total=${swap_total}KB;;;; swap_used=${swap_used}KB;${swap_warn_pct};${swap_crit_pct};; swap_free=${swap_free}KB;;;;"
+    data="swap_total=${swap_total}kib;;;; swap_used=${swap_used}kib;${swap_warn_pct};${swap_crit_pct};; swap_free=${swap_free}kib;;;;"
 
     # Compare to threshold values
     if (( $(echo "${swap_used_pct} >= ${CRITICAL_LEVEL}" | bc -l) )); then
@@ -62,20 +62,20 @@ function main()
 }
 
 # Format byte values base on magnitude
-function format_bytes() {
+function format_bits() {
     local kb="$1"
-    local unit="KB"
+    local unit="KiB"
     local value="$kb"
 
     if (( kb >= 1024 * 1024 * 1024 )); then
         value=$(awk "BEGIN {printf \"%.2f\", $kb/1073741824}")
-        unit="TB"
+        unit="TiB"
     elif (( kb >= 1024 * 1024 )); then
         value=$(awk "BEGIN {printf \"%.2f\", $kb/1048576}")
-        unit="GB"
+        unit="GiB"
     elif (( kb >= 1024 )); then
         value=$(awk "BEGIN {printf \"%.2f\", $kb/1024}")
-        unit="MB"
+        unit="MiB"
     fi
 
     echo "${value}${unit}"

@@ -34,7 +34,7 @@ function main()
 
     # Generate output
     message="$total_updates packages available for upgrade ($security_updates security updates)"
-    data="total_updates=$total_updates;${WARNING_TOTAL};${CRITICAL_TOTAL};; recommended_updates=$recommended_updates;;;; security_updates=$security_updates;${WARNING_SECURITY};${CRITICAL_SECURITY};;"
+    data="apt_total=$total_updates;${WARNING_TOTAL};${CRITICAL_TOTAL};; apt_recommended=$recommended_updates;;;; apt_security=$security_updates;${WARNING_SECURITY};${CRITICAL_SECURITY};;"
 
     # Compare to threshold values
     if [[ $(echo "${total_updates} >= ${CRITICAL_TOTAL}" | bc -l) -eq 1 ]] || \

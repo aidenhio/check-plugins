@@ -12,11 +12,12 @@ PREFIX="MEM"
 # Global Variables
 WARNING_LEVEL=80
 CRITICAL_LEVEL=90
+INCLUDE_CACHE="false"
 
 # Main
 function main()
 {
-    local mem_total mem_free mem_buffers mem_cached mem_used 
+    local mem_total mem_free mem_buffers mem_cached mem_used
     local mem_used_pct mem_warn_pct mem_crit_pct
     local f_mem_total f_mem_free f_mem_used
     local message data
@@ -31,7 +32,9 @@ function main()
     mem_free=$(grep MemFree /proc/meminfo | awk '{print $2}')
     mem_buffers=$(grep Buffers /proc/meminfo | awk '{print $2}')
     mem_cached=$(grep ^Cached /proc/meminfo | awk '{print $2}')
-    mem_used=$((mem_total - mem_free - mem_buffers - mem_cached))
+    mem_used=$((mem_total - mem_free))
+    # mem_used=$((mem_total - mem_free - mem_buffers - mem_cached))
+
 
     # Calculate usage percentage
     mem_used_pct=$(awk -v used="$mem_used" -v total="$mem_total" 'BEGIN { printf "%.1f\n", 100 * used / total }')
@@ -39,7 +42,7 @@ function main()
     mem_crit_pct=$(awk "BEGIN {print int(($CRITICAL_LEVEL / 100) * $mem_total )}")
 
     # Generate output
-    f_mem_total=$(format_bytes "$mem_total") 
+    f_mem_total=$(format_bytes "$mem_total")
     f_mem_free=$(format_bytes "$mem_free")
     f_mem_used=$(format_bytes "$mem_used")
     message="${mem_used_pct}% memory used (${f_mem_used} used of ${f_mem_total}, ${f_mem_free} free)"
@@ -63,14 +66,14 @@ function format_bytes() {
     local unit="KB"
     local value="$kb"
 
-    if (( kb >= 1024 * 1024 * 1024 )); then
-        value=$(awk "BEGIN {printf \"%.2f\", $kb/1073741824}")
+    if (( kb >= 1000 * 1000 * 1000 )); then
+        value=$(awk "BEGIN {printf \"%.2f\", $kb/1000000000}")
         unit="TB"
-    elif (( kb >= 1024 * 1024 )); then
-        value=$(awk "BEGIN {printf \"%.2f\", $kb/1048576}")
+    elif (( kb >= 1000 * 1000 )); then
+        value=$(awk "BEGIN {printf \"%.2f\", $kb/1000000}")
         unit="GB"
-    elif (( kb >= 1024 )); then
-        value=$(awk "BEGIN {printf \"%.2f\", $kb/1024}")
+    elif (( kb >= 1000 )); then
+        value=$(awk "BEGIN {printf \"%.2f\", $kb/1000}")
         unit="MB"
     fi
 
@@ -82,9 +85,9 @@ function usage()
 {
 cat <<EOF
   Usage: $0 [ -h ] [ -c value ] [ -w value ]
-    -h, --help      : Print this screen
-    -c, --critical  : Critical percentage of memory used [Default: ${CRITICAL_LEVEL}]
-    -w, --warning   : Warn percentage of memory used [Default: ${WARNING_LEVEL}]
+    -h, --help          : Print this screen
+    -c, --critical      : Critical percentage of memory used [Default: ${CRITICAL_LEVEL}]
+    -w, --warning       : Warn percentage of memory used [Default: ${WARNING_LEVEL}]
 EOF
     exit 0
 }
