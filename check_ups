@@ -17,7 +17,7 @@ RUNTIME_WARN=300
 # Main
 function main()
 {
-    local rawOutput deviceStatus runtimeSeconds chargePercent onBattery outletPower batteryLow forcedShutdown
+    local rawOutput deviceStatus runtimeSeconds chargePercent onBattery realPower outletPower batteryLow forcedShutdown realLoad
     local batteryLowThreshold runtimeLowThreshold
     local message data
 
@@ -30,6 +30,7 @@ function main()
     runtimeSeconds=-1
     chargePercent=-1
     onBattery=-1
+    realPower=-1
     outletPower=-1
     batteryLow=-1
     forcedShutdown=-1
@@ -67,12 +68,17 @@ function main()
             inputVoltage=$(value $line)
         elif [[ $line =~ ^ups.load ]]; then
             outputLoad=$(value $line)
+        elif [[ $line =~ ^ups.realpower.nominal ]]; then
+            realPower=$(value $line)
         fi
     done
 
+    # Calculate watts used
+    realLoad=$(awk "BEGIN {print int($outputLoad * 0.01 * $realPower)}")
+
     # Generate check output
-    message="$DEVICE $deviceStatus (Charge $chargePercent%, runtime ${runtimeSeconds}s)"
-    data="ups_charge=$chargePercent%;$BATTERY_WARN;$batteryLowThreshold, ups_runtime=${runtimeSeconds}s;$RUNTIME_WARN;$runtimeLowThreshold, ups_load=$outputLoad%, ups_input_voltage=${inputVoltage}V"
+    message="$DEVICE $deviceStatus (Usage ${realLoad}W, charge $chargePercent%, runtime ${runtimeSeconds}s)"
+    data="ups_usage=${realLoad}W;;;; ups_charge=$chargePercent%;$BATTERY_WARN;$batteryLowThreshold;; ups_runtime=${runtimeSeconds}s;$RUNTIME_WARN;$runtimeLowThreshold;; ups_load=$outputLoad%;;;; ups_input_voltage=${inputVoltage}V;;;;"
 
     # Determine status by current charge or by remaining runtime
     if [ $onBattery -eq 1 ]; then

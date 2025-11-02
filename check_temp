@@ -36,14 +36,14 @@ function main()
     if $pi; then
         # Raspberry Pi: look for cpu_thermal-virtual-0 temp1
         temp=$(sensors | awk '/cpu_thermal-virtual-0/,/^$/' | awk '/temp1:/ {gsub(/[+°C]/, "", $2); print int($2); exit}')
-        
+
         # Fallback if no temp found
         if [[ -z "$temp" ]]; then
             handle_unknown "Unable to read CPU temperature"
         fi
 
         # Generate perfdata
-        data="cpu_temp=${temp}°C;${WARNING_LEVEL};${CRITICAL_LEVEL};;"
+        data="temp_cpu=${temp}C;${WARNING_LEVEL};${CRITICAL_LEVEL};;"
     else
         # x86: look for Core 0 or Package id 0
         all_core_temps=()
@@ -61,9 +61,9 @@ function main()
         temp=$(printf "%s\n" "${all_core_temps[@]}" | sort -nr | head -n1)
 
         # Generate perfdata
-        data="cpu_temp=${temp}°C;${WARNING_LEVEL};${CRITICAL_LEVEL};; "
+        data="temp_cpu=${temp}C;${WARNING_LEVEL};${CRITICAL_LEVEL};; "
         for i in "${!all_core_temps[@]}"; do
-            data+="core${i}=${all_core_temps[$i]};;;; "
+            data+="temp_core${i}=${all_core_temps[$i]};;;; "
         done
     fi
 
